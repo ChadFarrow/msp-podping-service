@@ -23,6 +23,6 @@ sed \
     /etc/caddy/Caddyfile.template > /etc/caddy/Caddyfile
 
 cd /hivepinger
-python -m hivepinger.api serve --host 127.0.0.1 --port 8000 &
+python -m hivepinger serve --host 127.0.0.1 --port 8000 &
 
 exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
