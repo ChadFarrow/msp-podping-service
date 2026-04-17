@@ -8,8 +8,10 @@ Receives HTTP podping requests from MSP, validates a shared bearer token, and fo
 
 ## Architecture
 
+Single container — Caddy listens on the public port, validates the bearer token, and reverse-proxies to hivepinger bound to localhost:
+
 ```
-MSP (Vercel) ──Bearer──► Caddy :8080 ──► hivepinger :1820 ──► Hive
+MSP (Vercel) ──Bearer──► Caddy :$PORT ──► hivepinger 127.0.0.1:8000 ──► Hive
 ```
 
 ## Prerequisites
@@ -19,15 +21,25 @@ MSP (Vercel) ──Bearer──► Caddy :8080 ──► hivepinger :1820 ──
 
 ## Deploy to Railway
 
-1. Create a new Railway project pointing at this repo.
+1. Create a new Railway project pointing at this repo. Railway detects the `Dockerfile` and builds from it.
 2. Set the following service variables:
    - `HIVE_ACCOUNT_NAME` — your Hive username (no `@`)
    - `HIVE_POSTING_KEY` — posting key
    - `PODPING_SHARED_SECRET` — random 32+ char string. Generate with `openssl rand -hex 32`.
-3. Deploy. Railway will build from the compose file and expose Caddy on a public URL.
+3. Deploy. Railway will build the Dockerfile, start the container, and expose it on the `$PORT` it injects.
 4. Verify health: `curl https://<railway-url>/health` → `ok`. `/health` is intentionally unauthenticated so Railway's health probes can reach it without the bearer token.
 5. Verify auth gate: `curl -i https://<railway-url>/` → `401 Unauthorized`
 6. Verify pass-through (no broadcast): `curl -H "Authorization: Bearer $SECRET" "https://<railway-url>/?url=https://example.com/feed.xml&reason=update&no_broadcast=true&detailed_response=true"` → 200 JSON
+
+## Local development
+
+```bash
+export HIVE_ACCOUNT_NAME=youraccount
+export HIVE_POSTING_KEY=STM...
+export PODPING_SHARED_SECRET=$(openssl rand -hex 32)
+docker compose up --build
+# or: docker build -t msp-podping . && docker run -p 8080:8080 -e HIVE_ACCOUNT_NAME -e HIVE_POSTING_KEY -e PODPING_SHARED_SECRET msp-podping
+```
 
 ## MSP environment variables
 
