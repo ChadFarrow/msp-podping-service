@@ -1,9 +1,11 @@
+# Debug: hardcoded token to isolate env-var vs matcher issues.
+# Revert to {env.PODPING_SHARED_SECRET} once we confirm the matcher works.
 :{$PORT:8080} {
     handle /health {
         respond "ok" 200
     }
 
-    @authorized header Authorization "Bearer {env.PODPING_SHARED_SECRET}"
+    @authorized header Authorization "Bearer debug-hardcoded-token-905ae6b4f9c1b312c15820f7e8fc1c907e33ba697e4f176885a959c3572acb63"
     handle @authorized {
         reverse_proxy 127.0.0.1:8000
     }
