@@ -1,9 +1,9 @@
-:{$PORT:8080} {
+:__PORT__ {
     handle /health {
         respond "ok" 200
     }
 
-    @authorized expression `{http.request.header.Authorization} == "Bearer " + {env.PODPING_SHARED_SECRET}`
+    @authorized header Authorization "Bearer __PODPING_SHARED_SECRET__"
     handle @authorized {
         reverse_proxy 127.0.0.1:8000
     }

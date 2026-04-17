@@ -12,7 +12,7 @@ RUN apt-get update \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
-COPY Caddyfile /etc/caddy/Caddyfile
+COPY Caddyfile.template /etc/caddy/Caddyfile.template
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
