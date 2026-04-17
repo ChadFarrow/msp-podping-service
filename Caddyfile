@@ -1,0 +1,12 @@
+:8080 {
+    handle /health {
+        respond "ok" 200
+    }
+
+    @authorized header Authorization "Bearer {$PODPING_SHARED_SECRET}"
+    handle @authorized {
+        reverse_proxy hivepinger:1820
+    }
+
+    respond "Unauthorized" 401
+}

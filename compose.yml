@@ -1,0 +1,19 @@
+services:
+  hivepinger:
+    image: ghcr.io/brianoflondon/podping-hivepinger:v1.0.0  # replace with a verified tag before deploy; never :latest
+    environment:
+      HIVE_ACCOUNT_NAME: ${HIVE_ACCOUNT_NAME}
+      HIVE_POSTING_KEY: ${HIVE_POSTING_KEY}
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "${PORT:-8080}:8080"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    environment:
+      PODPING_SHARED_SECRET: ${PODPING_SHARED_SECRET}
+    depends_on:
+      - hivepinger
+    restart: unless-stopped
