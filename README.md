@@ -4,7 +4,7 @@ Self-hosted [podping-hivepinger](https://github.com/brianoflondon/podping-hivepi
 
 ## What it does
 
-Receives HTTP podping requests from MSP, validates a shared bearer token, and forwards to hivepinger which queues, dedups, and broadcasts `podping` `custom_json` ops to the Hive blockchain. Podcast Index and other indexers watch whitelisted Hive accounts and re-crawl feeds when a podping lands.
+Receives HTTP podping requests from MSP, validates a shared bearer token, and forwards to hivepinger which queues, dedups, and broadcasts `podping` `custom_json` ops to the Hive blockchain. Podcast Index and other indexers watch Hive for podpings and re-crawl feeds when they land.
 
 ## Architecture
 
@@ -14,7 +14,7 @@ MSP (Vercel) ──Bearer──► Caddy :8080 ──► hivepinger :1820 ──
 
 ## Prerequisites
 
-- A Hive account on the [Podping notifier whitelist](https://github.com/Podcastindex-org/podping-hivewriter#accounts-whitelisted-to-send-podpings). Email `gethive@podping.org` to request whitelisting.
+- A funded Hive account (minimum ~20 HP so the account has Resource Credits to post; `hiveonboard.com?ref=podping` delegates enough to start). Any Hive account can send podpings — no notifier approval is required anymore.
 - The account's **posting key** (STM… prefix, never the owner or active key).
 
 ## Deploy to Railway
