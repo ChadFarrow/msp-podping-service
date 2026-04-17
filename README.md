@@ -25,7 +25,7 @@ MSP (Vercel) ──Bearer──► Caddy :8080 ──► hivepinger :1820 ──
    - `HIVE_POSTING_KEY` — posting key
    - `PODPING_SHARED_SECRET` — random 32+ char string. Generate with `openssl rand -hex 32`.
 3. Deploy. Railway will build from the compose file and expose Caddy on a public URL.
-4. Verify health: `curl https://<railway-url>/health` → `ok`
+4. Verify health: `curl https://<railway-url>/health` → `ok`. `/health` is intentionally unauthenticated so Railway's health probes can reach it without the bearer token.
 5. Verify auth gate: `curl -i https://<railway-url>/` → `401 Unauthorized`
 6. Verify pass-through (no broadcast): `curl -H "Authorization: Bearer $SECRET" "https://<railway-url>/?url=https://example.com/feed.xml&reason=update&no_broadcast=true&detailed_response=true"` → 200 JSON
 

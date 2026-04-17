@@ -1,6 +1,6 @@
 services:
   hivepinger:
-    image: ghcr.io/brianoflondon/podping-hivepinger:v1.0.0  # replace with a verified tag before deploy; never :latest
+    image: brianoflondon/podping-hivepinger:1.4.1  # Docker Hub; verified existing tag as of 2026-04-17. Never :latest.
     environment:
       HIVE_ACCOUNT_NAME: ${HIVE_ACCOUNT_NAME}
       HIVE_POSTING_KEY: ${HIVE_POSTING_KEY}
