@@ -50,3 +50,12 @@ On the MSP Vercel project, set:
 ## Rollback
 
 Unset `PODPING_BEARER_TOKEN` or `PODPING_ENDPOINT_URL` on the MSP Vercel project. MSP's `notifyPodping()` silently no-ops. No redeploy needed.
+
+## Implementation notes
+
+- **Base image**: `brianoflondon/podping-hivepinger:1.4.1` on Docker Hub. Pinned to a specific tag — never `:latest`. Check [Docker Hub tags](https://hub.docker.com/r/brianoflondon/podping-hivepinger/tags) before bumping.
+- **Caddy binary**: installed in the Dockerfile from the official v2.8.4 tarball (keeps the Debian base from `python:3.13-slim` under `brianoflondon/podping-hivepinger`).
+- **Config rendering**: `entrypoint.sh` renders `Caddyfile.template` → `/etc/caddy/Caddyfile` via `sed` at container start, substituting `__PORT__` and `__PODPING_SHARED_SECRET__`. Avoids Caddy's placeholder quirks inside `header` matcher values.
+- **Hivepinger invocation**: `python -m hivepinger.api --host 127.0.0.1 --port 8000` (the 1.4.x CLI is flat — no `serve` subcommand, and the module entry is `hivepinger.api`, not `hivepinger`).
+- **Health check**: `/health` is unauthenticated so Railway's health probes can reach it. Every other path requires `Authorization: Bearer <PODPING_SHARED_SECRET>` or returns 401.
+- **Rotation**: to rotate the bearer token, update both `PODPING_SHARED_SECRET` on Railway and `PODPING_BEARER_TOKEN` on Vercel. Railway auto-redeploys on env change; Vercel needs an explicit redeploy for env changes to take effect.
