@@ -3,7 +3,7 @@
         respond "ok" 200
     }
 
-    @authorized header Authorization "Bearer {$PODPING_SHARED_SECRET}"
+    @authorized header Authorization "Bearer {env.PODPING_SHARED_SECRET}"
     handle @authorized {
         reverse_proxy 127.0.0.1:8000
     }
