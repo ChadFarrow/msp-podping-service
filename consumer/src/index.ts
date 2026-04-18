@@ -8,11 +8,6 @@ const {
   CONSUMER_ENABLED = 'true',
 } = process.env;
 
-function die(msg: string): never {
-  console.error(`[consumer] ${msg}`);
-  process.exit(1);
-}
-
 const baseUrl = (STABLEKRAFT_BASE_URL || '').replace(/\/$/, '');
 const mspAccount = (HIVE_ACCOUNT_NAME || '').toLowerCase();
 const rewindBlocks = Math.max(0, parseInt(CONSUMER_REWIND_BLOCKS, 10) || 200);
@@ -252,13 +247,21 @@ function blockNumFromId(blockId: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-// Boot
-if (CONSUMER_ENABLED !== 'true') {
-  console.log('[consumer] CONSUMER_ENABLED != "true", idling');
+// Boot. Required-env issues idle the consumer rather than dying, so a
+// missing STABLEKRAFT_BASE_URL doesn't take down the pusher in the same
+// container via our wait -n supervision.
+function idleForever(reason: string): void {
+  console.warn(`[consumer] idling: ${reason}`);
   setInterval(() => undefined, 1 << 30);
+}
+
+if (CONSUMER_ENABLED !== 'true') {
+  idleForever('CONSUMER_ENABLED != "true"');
+} else if (!STABLEKRAFT_BASE_URL) {
+  idleForever('STABLEKRAFT_BASE_URL is not set (set it on Railway to enable the consumer)');
+} else if (!HIVE_ACCOUNT_NAME) {
+  idleForever('HIVE_ACCOUNT_NAME is not set (used for MSP-signer match)');
 } else {
-  if (!STABLEKRAFT_BASE_URL) die('STABLEKRAFT_BASE_URL is required');
-  if (!HIVE_ACCOUNT_NAME) die('HIVE_ACCOUNT_NAME is required (used for MSP-signer match)');
   main().catch(err => {
     console.error('[consumer] fatal:', err);
     process.exit(1);
