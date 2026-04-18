@@ -1,8 +1,13 @@
 :__PORT__ {
+    # Public, unauthenticated: proxied to hivepinger's /health endpoint so a
+    # dead Python process turns Railway's probe red. hivepinger returns 200 when
+    # healthy and 503 when its queue is inaccessible or in a fail state; Caddy
+    # returns 502 if the upstream is unreachable entirely.
     handle /health {
-        respond "ok" 200
+        reverse_proxy 127.0.0.1:8000
     }
 
+    # Bearer-authenticated: reverse-proxy everything else to hivepinger.
     @authorized header Authorization "Bearer __PODPING_SHARED_SECRET__"
     handle @authorized {
         reverse_proxy 127.0.0.1:8000
