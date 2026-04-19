@@ -7,7 +7,7 @@ Self-hosted [podping-hivepinger](https://github.com/brianoflondon/podping-hivepi
 Two directions:
 
 - **Out** (pusher): receives HTTP podping requests from MSP, validates a shared bearer token, and forwards to hivepinger which queues, dedups, and broadcasts `podping` `custom_json` ops to the Hive blockchain.
-- **In** (consumer): tails the Hive blockchain for any `pp_music_*` podping (from any signer, not just MSP), and calls stablekraft-app's public feed endpoints. Tracked feeds get refreshed; untracked feeds get imported only when the podping was signed by our MSP Hive account.
+- **In** (consumer): tails the Hive blockchain for any `pp_music_*` or `pp_podcast_*` podping (from any signer, not just MSP), and calls stablekraft-app's public feed endpoints. Tracked feeds get refreshed; untracked feeds get imported only when the podping was signed by our MSP Hive account. Music-content podcasts hosted on platforms that emit `pp_podcast_*` (e.g. Podhome for UpBeats, Boo Bury's "Before the Schemes") refresh within ~1 minute of publish instead of waiting for stablekraft-app's 4 AM cron.
 
 ## Architecture
 
@@ -72,7 +72,7 @@ CONSUMER_REWIND_BLOCKS=1000 \
 node dist/index.js
 ```
 
-Debug flag: setting `CONSUMER_SMOKE_ANY_PP=true` widens the filter from `pp_music_` to any `pp_` podping so you can see classification working when music podpings are too rare to catch during a short test.
+Debug flag: setting `CONSUMER_SMOKE_ANY_PP=true` widens the filter from `pp_music_`/`pp_podcast_` to any `pp_` podping so you can see classification working when matching podpings are too rare to catch during a short test. Keep this off in production — the Podping Index re-broadcast relays would flood `/api/feeds/exists` with the full Hive podping firehose.
 
 ## MSP environment variables
 
@@ -94,7 +94,7 @@ On the MSP Vercel project, set:
 - **Config rendering**: `entrypoint.sh` renders `Caddyfile.template` → `/etc/caddy/Caddyfile` via `sed` at container start, substituting `__PORT__` and `__PODPING_SHARED_SECRET__`. Avoids Caddy's placeholder quirks inside `header` matcher values.
 - **Hivepinger invocation**: `python -m hivepinger.api --host 127.0.0.1 --port 8000` (the 1.4.x CLI is flat — no `serve` subcommand, and the module entry is `hivepinger.api`, not `hivepinger`).
 - **Consumer Hive client**: `@hiveio/dhive` with multi-RPC failover. Streams blocks in `Irreversible` mode (~45s lag, no fork handling). Rewinds `CONSUMER_REWIND_BLOCKS` (default 200) on boot, uses an in-memory LRU of 5000 tx ids for dedup during the rewind window. No persistence — trade-off: downtime > 10 min loses podpings in the gap.
-- **Consumer filter**: only `custom_json` ops with `id` starting `pp_music_`. For each URL in the podping's `iris` array: if stablekraft-app already tracks it (via `GET /api/feeds/exists?url=…`), refresh it; else if the podping was signed by our `HIVE_ACCOUNT_NAME` (the MSP account), import it as an album; else skip.
+- **Consumer filter**: only `custom_json` ops with `id` starting `pp_music_` or `pp_podcast_`. For each URL in the podping's `iris` array: if stablekraft-app already tracks it (via `GET /api/feeds/exists?url=…`), refresh it; else if the podping was signed by our `HIVE_ACCOUNT_NAME` (the MSP account), import it as an album (stablekraft-app's `/api/feeds` auto-upgrades `type` to `'podcast'` when the RSS declares `<podcast:medium>podcast</podcast:medium>`); else skip.
 - **Health check**: `/health` proxies to hivepinger's own `/health` endpoint. Dead hivepinger → Caddy 502 → Railway restarts. No longer a static `ok`.
 - **Process supervision**: `entrypoint.sh` uses `wait -n` + `trap 'kill 0'` so any child process exit terminates the container and triggers a Railway restart. No silent leaks.
 - **Rotation**: to rotate the bearer token, update both `PODPING_SHARED_SECRET` on Railway and `PODPING_BEARER_TOKEN` on Vercel. Railway auto-redeploys on env change; Vercel needs an explicit redeploy for env changes to take effect.

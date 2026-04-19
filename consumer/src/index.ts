@@ -164,7 +164,7 @@ async function processBlock(block: SignedBlock): Promise<void> {
     const txId = txIds?.[i] || `${block.block_id}-${i}`;
     const ops = txs[i].operations || [];
     for (const op of ops) {
-      if (!isCustomJsonMusicPodping(op)) continue;
+      if (!isCustomJsonMusicOrPodcastPodping(op)) continue;
       const payload = op[1] as {
         required_auths: string[];
         required_posting_auths: string[];
@@ -191,16 +191,18 @@ async function processBlock(block: SignedBlock): Promise<void> {
   }
 }
 
-function isCustomJsonMusicPodping(op: Operation): boolean {
+function isCustomJsonMusicOrPodcastPodping(op: Operation): boolean {
   if (op[0] !== 'custom_json') return false;
   const payload = op[1] as { id?: unknown };
   if (typeof payload?.id !== 'string') return false;
-  // Temporary smoke-test widening: also log any pp_ podping so we can confirm
-  // classification works end-to-end. Narrow back to pp_music_ before deploy.
+  // Debug override: widen to any pp_ podping to verify classification end-to-end
+  // when music/podcast podpings are too rare to catch during a short test window.
+  // Do NOT leave this on in production — the Podping Index re-broadcast relays
+  // would flood /api/feeds/exists with the full Hive podping firehose.
   if (process.env.CONSUMER_SMOKE_ANY_PP === 'true') {
     return payload.id.startsWith('pp_');
   }
-  return payload.id.startsWith('pp_music_');
+  return payload.id.startsWith('pp_music_') || payload.id.startsWith('pp_podcast_');
 }
 
 async function main(): Promise<void> {
