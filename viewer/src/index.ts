@@ -4,6 +4,8 @@ import { startCollector } from './collector';
 import { startEnricher } from './enricher';
 import { startPruner } from './pruner';
 import { buildServer } from './api';
+import { registerUi } from './static';
+import { join } from 'node:path';
 
 async function main() {
   const cfg = loadConfig(process.env);
@@ -16,6 +18,7 @@ async function main() {
   startPruner(cfg, db);
 
   const app = buildServer({ db, corsOrigins: cfg.corsOrigins });
+  await registerUi(app, join(__dirname, 'ui'));
   await app.listen({ host: '0.0.0.0', port: cfg.port });
   console.log(`[viewer] API listening on :${cfg.port}`);
 }
