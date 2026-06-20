@@ -1,22 +1,21 @@
 import type { Filters } from '../api';
 
-const TYPES = ['', 'pp_music', 'pp_podcast', 'pp_publisher', 'pp_video'];
-const LABELS: Record<string, string> = {
-  '': 'All types',
-  pp_music: 'Music',
-  pp_podcast: 'Podcast',
-  pp_publisher: 'Publisher',
-  pp_video: 'Video',
-};
+/** "musicL" -> "Music list", "music" -> "Music" */
+function label(medium: string): string {
+  const base = medium.endsWith('L') ? medium.slice(0, -1) : medium;
+  const pretty = base.charAt(0).toUpperCase() + base.slice(1);
+  return medium.endsWith('L') ? `${pretty} list` : pretty;
+}
 
 export function FiltersBar(props: {
   value: Filters;
   onChange: (f: Filters) => void;
+  media: string[];
   live: boolean;
   onToggleLive: () => void;
   connected: boolean;
 }) {
-  const { value, onChange, live, onToggleLive, connected } = props;
+  const { value, onChange, media, live, onToggleLive, connected } = props;
   return (
     <div className="filters">
       <input
@@ -33,11 +32,12 @@ export function FiltersBar(props: {
       />
       <select
         className="f-input"
-        value={value.type ?? ''}
-        onChange={(e) => onChange({ ...value, type: e.target.value || undefined })}
+        value={value.medium ?? ''}
+        onChange={(e) => onChange({ ...value, medium: e.target.value || undefined })}
       >
-        {TYPES.map((t) => (
-          <option key={t} value={t}>{LABELS[t]}</option>
+        <option value="">All media</option>
+        {media.map((m) => (
+          <option key={m} value={m}>{label(m)}</option>
         ))}
       </select>
       <button className={`live ${live ? 'on' : 'off'}`} onClick={onToggleLive} title="Toggle live updates">

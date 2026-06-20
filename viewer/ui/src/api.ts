@@ -23,7 +23,13 @@ export interface Podping {
 export interface Filters {
   feed?: string;
   signer?: string;
-  type?: string;
+  medium?: string;
+}
+
+export async function fetchMedia(): Promise<string[]> {
+  const res = await fetch('/api/media');
+  if (!res.ok) return [];
+  return ((await res.json()) as { media: string[] }).media;
 }
 
 export interface Cursor { ts: string; id: number; }
@@ -32,7 +38,7 @@ export async function fetchPodpings(filters: Filters, cursor?: Cursor, limit = 5
   const p = new URLSearchParams();
   if (filters.feed) p.set('feed', filters.feed.trim());
   if (filters.signer) p.set('signer', filters.signer.trim());
-  if (filters.type) p.set('type', filters.type);
+  if (filters.medium) p.set('medium', filters.medium);
   if (cursor) { p.set('beforeTs', cursor.ts); p.set('beforeId', String(cursor.id)); }
   p.set('limit', String(limit));
   const res = await fetch(`/api/podpings?${p.toString()}`);

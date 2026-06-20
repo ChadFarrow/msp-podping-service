@@ -3,7 +3,7 @@ import type { Db, PodpingRow, SearchParams } from './db';
 import { bus, sseFrame } from './events';
 
 export function buildServer(deps: {
-  db: Pick<Db, 'searchPodpings' | 'lastBlock'>;
+  db: Pick<Db, 'searchPodpings' | 'lastBlock' | 'mediums'>;
   corsOrigins: string[];
 }): FastifyInstance {
   const app = Fastify({ logger: false });
@@ -23,12 +23,14 @@ export function buildServer(deps: {
 
   app.get('/health', async () => ({ ok: true, lastBlock: await deps.db.lastBlock() }));
 
+  app.get('/api/media', async () => ({ media: await deps.db.mediums() }));
+
   app.get('/api/podpings', async (req) => {
     const q = req.query as Record<string, string | undefined>;
     const params: SearchParams = {
       feed: q.feed || undefined,
       signer: q.signer || undefined,
-      type: q.type || undefined,
+      medium: q.medium || undefined,
       limit: q.limit ? Number(q.limit) : undefined,
       beforeTs: q.beforeTs || undefined,
       beforeId: q.beforeId ? Number(q.beforeId) : undefined,

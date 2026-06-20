@@ -6,6 +6,7 @@ function deps(rows: any[] = []) {
     db: {
       searchPodpings: vi.fn(async (_p: any) => rows),
       lastBlock: vi.fn(async () => 12345),
+      mediums: vi.fn(async () => ['podcast', 'music', 'video']),
     },
     corsOrigins: ['https://musicsideproject.com'],
   };
@@ -23,10 +24,10 @@ describe('api', () => {
   it('GET /api/podpings passes filters through and returns rows', async () => {
     const d = deps([{ id: 1, signer: 'chadf' }]);
     const app = buildServer(d);
-    const res = await app.inject({ method: 'GET', url: '/api/podpings?feed=https://x/f.xml&signer=chadf&type=pp_music&limit=10&beforeTs=2026-06-20T00:00:00Z&beforeId=99' });
+    const res = await app.inject({ method: 'GET', url: '/api/podpings?feed=https://x/f.xml&signer=chadf&medium=music&limit=10&beforeTs=2026-06-20T00:00:00Z&beforeId=99' });
     expect(res.statusCode).toBe(200);
     expect(res.json().podpings).toHaveLength(1);
-    expect(d.db.searchPodpings).toHaveBeenCalledWith({ feed: 'https://x/f.xml', signer: 'chadf', type: 'pp_music', limit: 10, beforeTs: '2026-06-20T00:00:00Z', beforeId: 99 });
+    expect(d.db.searchPodpings).toHaveBeenCalledWith({ feed: 'https://x/f.xml', signer: 'chadf', medium: 'music', limit: 10, beforeTs: '2026-06-20T00:00:00Z', beforeId: 99 });
     await app.close();
   });
 
@@ -34,6 +35,14 @@ describe('api', () => {
     const app = buildServer(deps());
     const res = await app.inject({ method: 'GET', url: '/api/podpings', headers: { origin: 'https://musicsideproject.com' } });
     expect(res.headers['access-control-allow-origin']).toBe('https://musicsideproject.com');
+    await app.close();
+  });
+
+  it('GET /api/media returns the distinct mediums', async () => {
+    const app = buildServer(deps());
+    const res = await app.inject({ method: 'GET', url: '/api/media' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ media: ['podcast', 'music', 'video'] });
     await app.close();
   });
 

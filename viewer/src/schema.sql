@@ -35,3 +35,4 @@ CREATE TABLE IF NOT EXISTS feeds (
   last_checked TIMESTAMPTZ,
   not_found    BOOLEAN NOT NULL DEFAULT false
 );
+CREATE INDEX IF NOT EXISTS feeds_medium_idx ON feeds (medium);

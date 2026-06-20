@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { PodpingRecord } from './podping';
 import type { FeedMeta } from './pi';
 
-export interface SearchParams { feed?: string; signer?: string; type?: string; limit?: number; beforeTs?: string; beforeId?: number; }
+export interface SearchParams { feed?: string; signer?: string; medium?: string; limit?: number; beforeTs?: string; beforeId?: number; }
 export interface PodpingRow extends PodpingRecord {
   id: number;
   feed?: (FeedMeta & { iri: string }) | null;
@@ -56,7 +56,12 @@ export class Db {
       where.push(`p.id IN (SELECT podping_id FROM podping_iris WHERE iri = $${args.length})`);
     }
     if (p.signer) { args.push(p.signer); where.push(`p.signer = $${args.length}`); }
-    if (p.type) { args.push(p.type + '%'); where.push(`p.op_id LIKE $${args.length}`); }
+    // Filter by the feed's ACTUAL medium (from Podcast Index enrichment), not the
+    // signer-declared op_id — a podping qualifies if any of its iris is that medium.
+    if (p.medium) {
+      args.push(p.medium);
+      where.push(`p.id IN (SELECT pim.podping_id FROM podping_iris pim JOIN feeds fm ON fm.iri = pim.iri WHERE fm.medium = $${args.length})`);
+    }
     // Keyset cursor over (ts, id) so pagination matches the time ordering below.
     if (p.beforeTs && p.beforeId) {
       args.push(p.beforeTs); const tsIdx = args.length;
@@ -117,6 +122,16 @@ export class Db {
     const res = await this.pool.query(
       `DELETE FROM podpings WHERE ts < now() - ($1 || ' days')::interval`, [String(retentionDays)]);
     return res.rowCount ?? 0;
+  }
+
+  /** Distinct feed mediums present (from enrichment), most common first. */
+  async mediums(): Promise<string[]> {
+    const res = await this.pool.query(
+      `SELECT medium, count(*) AS c FROM feeds
+       WHERE medium IS NOT NULL AND medium <> ''
+       GROUP BY medium ORDER BY c DESC, medium ASC`,
+    );
+    return res.rows.map((r) => r.medium as string);
   }
 
   async lastBlock(): Promise<number | null> {

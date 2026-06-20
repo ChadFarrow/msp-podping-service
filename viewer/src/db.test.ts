@@ -43,12 +43,21 @@ d('Db', () => {
     expect(rows[0].iris).toContain('https://unique/abc.xml');
   });
 
-  it('filters by signer and type', async () => {
-    await db.insertPodping(rec({ signer: 'zzz_signer', opId: 'pp_podcast_update', medium: 'podcast' }));
+  it('filters by signer', async () => {
+    await db.insertPodping(rec({ signer: 'zzz_signer' }));
     const bySigner = await db.searchPodpings({ signer: 'zzz_signer' });
+    expect(bySigner.length).toBeGreaterThanOrEqual(1);
     expect(bySigner.every((x) => x.signer === 'zzz_signer')).toBe(true);
-    const byType = await db.searchPodpings({ type: 'pp_podcast', signer: 'zzz_signer' });
-    expect(byType.every((x) => x.opId.startsWith('pp_podcast'))).toBe(true);
+  });
+
+  it('filters by the feed medium from enrichment, not the op_id', async () => {
+    // A podping the signer tagged as music, but whose feed PI classifies as video.
+    await db.insertPodping(rec({ signer: 'medtest', opId: 'pp_music_update', iris: ['https://med/vid.xml'] }));
+    await db.upsertFeed('https://med/vid.xml', { piFeedId: 1, title: 'V', author: null, image: null, medium: 'video' });
+    const asMusic = await db.searchPodpings({ signer: 'medtest', medium: 'music' });
+    expect(asMusic.length).toBe(0); // op_id says music, but real medium is video
+    const asVideo = await db.searchPodpings({ signer: 'medtest', medium: 'video' });
+    expect(asVideo.length).toBe(1);
   });
 
   it('tracks and enriches feeds', async () => {
