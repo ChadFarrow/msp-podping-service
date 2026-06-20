@@ -7,6 +7,7 @@ function block() {
     transactions: [
       { operations: [['custom_json', { id: 'pp_music_update', json: '{"iris":["https://a/f.xml"]}', required_posting_auths: ['chadf'] }]] },
       { operations: [['transfer', {}], ['custom_json', { id: 'not_pp', json: '{}' }]] },
+      { operations: [['custom_json', { id: 'pp_startup', json: '{}', required_posting_auths: ['chadf'] }]] },
     ],
   };
 }

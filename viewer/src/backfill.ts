@@ -112,7 +112,7 @@ async function main() {
         const ops = txs[t].operations ?? [];
         for (let o = 0; o < ops.length; o++) {
           const rec = classifyOp(toLegacy(ops[o]), { txId: txIds[t] ?? `${blockNum}-${t}`, opIdx: o, blockNum, ts });
-          if (rec) buffer.push(rec);
+          if (rec && rec.iris.length > 0) buffer.push(rec); // skip empty-iris heartbeats
         }
       }
       scanned++;

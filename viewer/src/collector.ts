@@ -18,6 +18,7 @@ export async function processBlock(
     for (let o = 0; o < ops.length; o++) {
       const rec = classifyOp(ops[o], { txId, opIdx: o, blockNum, ts });
       if (!rec) continue;
+      if (rec.iris.length === 0) continue; // skip heartbeats (pp_startup) with no feed
       const id = await deps.db.insertPodping(rec);
       if (id === null) continue;
       count++;

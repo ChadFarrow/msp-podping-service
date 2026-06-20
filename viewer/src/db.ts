@@ -49,7 +49,7 @@ export class Db {
 
   async searchPodpings(p: SearchParams): Promise<PodpingRow[]> {
     const limit = Math.min(p.limit ?? 50, 200);
-    const where: string[] = [];
+    const where: string[] = ['cardinality(p.iris) > 0']; // hide heartbeats (pp_startup) with no feed
     const args: unknown[] = [];
     if (p.feed) {
       args.push(p.feed);
