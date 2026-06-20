@@ -58,6 +58,7 @@ d('Db', () => {
     await db.upsertFeed('https://enrich/me.xml', { piFeedId: 7, title: 'T', author: 'A', image: 'I', medium: 'music' });
     const feed = await db.getFeed('https://enrich/me.xml');
     expect(feed?.title).toBe('T');
+    expect(feed?.piFeedId).toBe(7); // BIGINT coerced to number, not "7"
     const stillPending = await db.irisNeedingEnrichment(50);
     expect(stillPending).not.toContain('https://enrich/me.xml');
   });

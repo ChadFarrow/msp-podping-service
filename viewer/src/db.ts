@@ -75,7 +75,7 @@ export class Db {
       ts: row.ts instanceof Date ? row.ts.toISOString() : row.ts,
       signer: row.signer, opId: row.op_id, medium: row.medium, reason: row.reason,
       iris: row.iris, raw: row.raw,
-      feed: row.f_iri ? { iri: row.f_iri, piFeedId: row.pi_feed_id, title: row.title, author: row.author, image: row.image, medium: row.f_medium } : null,
+      feed: row.f_iri ? { iri: row.f_iri, piFeedId: row.pi_feed_id == null ? null : Number(row.pi_feed_id), title: row.title, author: row.author, image: row.image, medium: row.f_medium } : null,
     }));
   }
 
@@ -104,7 +104,7 @@ export class Db {
     const res = await this.pool.query('SELECT * FROM feeds WHERE iri = $1', [iri]);
     if (res.rowCount === 0) return null;
     const r = res.rows[0];
-    return { iri: r.iri, piFeedId: r.pi_feed_id, title: r.title, author: r.author, image: r.image, medium: r.medium };
+    return { iri: r.iri, piFeedId: r.pi_feed_id == null ? null : Number(r.pi_feed_id), title: r.title, author: r.author, image: r.image, medium: r.medium };
   }
 
   async prune(retentionDays: number | null): Promise<number> {
