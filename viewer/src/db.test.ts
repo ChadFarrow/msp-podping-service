@@ -72,12 +72,14 @@ d('Db', () => {
     expect(stillPending).not.toContain('https://enrich/me.xml');
   });
 
-  it('marks not-found feeds so they are not re-queried', async () => {
-    await db.insertPodping(rec({ iris: ['https://gone/x.xml'] }));
-    await db.upsertFeed('https://gone/x.xml', null);
-    const feed = await db.getFeed('https://gone/x.xml');
-    expect(feed?.title).toBeNull();
-    expect((await db.irisNeedingEnrichment(50))).not.toContain('https://gone/x.xml');
+  it('re-queues feeds marked not_found until they are properly resolved', async () => {
+    await db.insertPodping(rec({ iris: ['https://requeue/x.xml'] }));
+    await db.upsertFeed('https://requeue/x.xml', null); // e.g. a rate-limit blip cached as not_found
+    // Still pending — a not_found row must be retried, not treated as done.
+    expect(await db.irisNeedingEnrichment(50)).toContain('https://requeue/x.xml');
+    // A successful re-check resolves it and removes it from the queue.
+    await db.upsertFeed('https://requeue/x.xml', { piFeedId: 1, title: 'T', author: null, image: null, medium: 'music' });
+    expect(await db.irisNeedingEnrichment(50)).not.toContain('https://requeue/x.xml');
   });
 
   it('prune is a no-op when retention is null', async () => {

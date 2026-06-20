@@ -93,9 +93,12 @@ export class Db {
     // NOT EXISTS + no DISTINCT lets Postgres short-circuit at LIMIT (~50ms vs ~6s
     // for a DISTINCT anti-join over the whole podping_iris table). Overfetch and
     // dedupe in app, since the same iri can appear on multiple podpings.
+    // A feed is "pending" if it has no successfully-checked row. Treating
+    // not_found rows as pending means any feed wrongly cached as not-found
+    // (e.g. from a rate-limit blip) gets retried until it's properly resolved.
     const res = await this.pool.query(
       `SELECT pi.iri FROM podping_iris pi
-       WHERE NOT EXISTS (SELECT 1 FROM feeds f WHERE f.iri = pi.iri)
+       WHERE NOT EXISTS (SELECT 1 FROM feeds f WHERE f.iri = pi.iri AND f.not_found = false)
        LIMIT $1`, [limit * 5]);
     const seen = new Set<string>();
     for (const r of res.rows) {

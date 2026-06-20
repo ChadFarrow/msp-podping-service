@@ -10,11 +10,15 @@ export async function enrichBatch(
   batchSize: number,
 ): Promise<number> {
   const pending = await deps.db.irisNeedingEnrichment(batchSize);
-  // Look feeds up concurrently — the whole batch runs in parallel.
+  // Look feeds up concurrently. lookup() returns null ONLY on a transient failure
+  // (rate-limit/5xx/network) — skip those so they stay queued and get retried,
+  // rather than caching them as "not found". A real 200 (even an empty feed)
+  // returns a FeedMeta and is cached.
   await Promise.all(
     pending.map(async (iri) => {
       const meta = await deps.lookup(iri);
-      await deps.db.upsertFeed(iri, meta); // meta null => marked not_found
+      if (meta === null) return; // transient — leave queued for retry
+      await deps.db.upsertFeed(iri, meta);
     }),
   );
   return pending.length;
@@ -22,7 +26,7 @@ export async function enrichBatch(
 
 export function startEnricher(cfg: Config, db: Db): void {
   const lookup = (iri: string) => lookupFeed(cfg.pi, iri);
-  const batch = Number(process.env.ENRICH_BATCH || 20); // feeds looked up concurrently per tick
+  const batch = Number(process.env.ENRICH_BATCH || 8); // concurrent lookups/tick; keep modest to stay under PI rate limits
   const intervalMs = Number(process.env.ENRICH_INTERVAL_MS || 1000);
   let running = false;
   setInterval(async () => {
