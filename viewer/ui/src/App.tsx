@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { fetchPodpings, fetchMedia, openStream, type Podping, type Filters } from './api';
+import { fetchPodpings, fetchMedia, fetchMspAccount, openStream, type Podping, type Filters } from './api';
 import { FiltersBar } from './components/Filters';
 import { PodpingRow } from './components/PodpingRow';
 import mspLogo from './assets/msp-logo.png';
@@ -14,6 +14,7 @@ export function App() {
   const [live, setLive] = useState(true);
   const [connected, setConnected] = useState(false);
   const [media, setMedia] = useState<string[]>([]);
+  const [mspAccount, setMspAccount] = useState<string | null>(null);
   const freshIds = useRef<Set<number>>(new Set());
   const rowsRef = useRef<Podping[]>([]);
   rowsRef.current = rows;
@@ -38,9 +39,10 @@ export function App() {
     void load(true);
   }, [load]);
 
-  // Populate the medium dropdown from whatever mediums actually exist.
+  // Populate the medium dropdown + MSP account from the backend.
   useEffect(() => {
     void fetchMedia().then(setMedia).catch(() => setMedia([]));
+    void fetchMspAccount().then(setMspAccount).catch(() => setMspAccount(null));
   }, []);
 
   // Live stream: prepend new podpings only when live and viewing the unfiltered firehose.
@@ -71,6 +73,7 @@ export function App() {
         onChange={setFilters}
         onSearch={(feed) => setFilters(feed ? { feed } : {})}
         media={media}
+        mspAccount={mspAccount}
         live={live}
         onToggleLive={() => setLive((v) => !v)}
         connected={connected}

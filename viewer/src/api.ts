@@ -5,6 +5,7 @@ import { bus, sseFrame } from './events';
 export function buildServer(deps: {
   db: Pick<Db, 'searchPodpings' | 'lastBlock' | 'mediums'>;
   corsOrigins: string[];
+  mspAccount?: string | null;
 }): FastifyInstance {
   const app = Fastify({ logger: false });
 
@@ -24,6 +25,8 @@ export function buildServer(deps: {
   app.get('/health', async () => ({ ok: true, lastBlock: await deps.db.lastBlock() }));
 
   app.get('/api/media', async () => ({ media: await deps.db.mediums() }));
+
+  app.get('/api/config', async () => ({ mspAccount: deps.mspAccount ?? null }));
 
   app.get('/api/podpings', async (req) => {
     const q = req.query as Record<string, string | undefined>;

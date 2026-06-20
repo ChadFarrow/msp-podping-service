@@ -13,12 +13,14 @@ export function FiltersBar(props: {
   onChange: (f: Filters) => void;
   onSearch: (feed: string) => void;
   media: string[];
+  mspAccount: string | null;
   live: boolean;
   onToggleLive: () => void;
   connected: boolean;
 }) {
-  const { value, onChange, onSearch, media, live, onToggleLive, connected } = props;
+  const { value, onChange, onSearch, media, mspAccount, live, onToggleLive, connected } = props;
   const [feedInput, setFeedInput] = useState(value.feed ?? '');
+  const mspActive = Boolean(mspAccount) && value.signer === mspAccount;
 
   // Keep the box in sync when filters are cleared/changed elsewhere.
   useEffect(() => { setFeedInput(value.feed ?? ''); }, [value.feed]);
@@ -51,6 +53,15 @@ export function FiltersBar(props: {
           <option key={m} value={m}>{label(m)}</option>
         ))}
       </select>
+      {mspAccount && (
+        <button
+          className={`msp-btn ${mspActive ? 'on' : ''}`}
+          onClick={() => onChange({ ...value, signer: mspActive ? undefined : mspAccount })}
+          title={`Show only podpings signed by @${mspAccount}`}
+        >
+          MSP only
+        </button>
+      )}
       <button className={`live ${live ? 'on' : 'off'}`} onClick={onToggleLive} title="Toggle live updates">
         <span className={`dot ${connected ? 'ok' : 'bad'}`} />
         {live ? 'Live' : 'Paused'}

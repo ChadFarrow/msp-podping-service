@@ -9,6 +9,7 @@ function deps(rows: any[] = []) {
       mediums: vi.fn(async () => ['podcast', 'music', 'video']),
     },
     corsOrigins: ['https://musicsideproject.com'],
+    mspAccount: 'chadf',
   };
 }
 
@@ -43,6 +44,13 @@ describe('api', () => {
     const res = await app.inject({ method: 'GET', url: '/api/media' });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ media: ['podcast', 'music', 'video'] });
+    await app.close();
+  });
+
+  it('GET /api/config returns the msp account', async () => {
+    const app = buildServer(deps());
+    const res = await app.inject({ method: 'GET', url: '/api/config' });
+    expect(res.json()).toEqual({ mspAccount: 'chadf' });
     await app.close();
   });
 

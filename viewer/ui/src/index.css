@@ -121,6 +121,20 @@ a:hover { text-decoration: underline; }
   transition: border-color var(--transition), background var(--transition);
 }
 .live.on { border-color: var(--border-focus); }
+
+.msp-btn {
+  border: 1px solid var(--border-color);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border-radius: var(--radius-md);
+  padding: 9px 14px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  transition: border-color var(--transition), background var(--transition);
+}
+.msp-btn:hover { border-color: var(--border-focus); }
+.msp-btn.on { background: var(--accent-gradient); color: #fff; border-color: transparent; }
 .live .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
 .live .dot.ok { background: var(--success); box-shadow: 0 0 8px var(--success); }
 .live .dot.bad { background: var(--error); }

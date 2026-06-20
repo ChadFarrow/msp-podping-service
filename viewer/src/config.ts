@@ -6,6 +6,7 @@ export interface Config {
   rewindBlocks: number;
   corsOrigins: string[];
   port: number;
+  mspAccount: string | null;
 }
 
 const DEFAULT_RPC = [
@@ -44,5 +45,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     rewindBlocks: env.REWIND_BLOCKS ? Number(env.REWIND_BLOCKS) : 200,
     corsOrigins: list(env.CORS_ORIGINS, []),
     port: env.PORT ? Number(env.PORT) : 8080,
+    mspAccount: (env.MSP_ACCOUNT || env.HIVE_ACCOUNT_NAME || 'chadf').trim().toLowerCase() || null,
   };
 }

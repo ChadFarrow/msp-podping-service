@@ -17,6 +17,11 @@ describe('loadConfig', () => {
     expect(c.rpcNodes.length).toBeGreaterThan(0);
     expect(c.corsOrigins).toEqual([]);
     expect(c.pi.userAgent).toContain('msp-podping-viewer');
+    expect(c.mspAccount).toBe('chadf');
+  });
+
+  it('lets MSP_ACCOUNT override the msp account', () => {
+    expect(loadConfig({ ...base, MSP_ACCOUNT: 'SomeAcct' } as any).mspAccount).toBe('someacct');
   });
 
   it('treats empty RETENTION_DAYS as keep-forever (null)', () => {

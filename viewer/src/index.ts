@@ -17,7 +17,7 @@ async function main() {
   startEnricher(cfg, db);
   startPruner(cfg, db);
 
-  const app = buildServer({ db, corsOrigins: cfg.corsOrigins });
+  const app = buildServer({ db, corsOrigins: cfg.corsOrigins, mspAccount: cfg.mspAccount });
   await registerUi(app, join(__dirname, 'ui'));
   await app.listen({ host: '0.0.0.0', port: cfg.port });
   console.log(`[viewer] API listening on :${cfg.port}`);

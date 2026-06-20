@@ -32,6 +32,16 @@ export async function fetchMedia(): Promise<string[]> {
   return ((await res.json()) as { media: string[] }).media;
 }
 
+export async function fetchMspAccount(): Promise<string | null> {
+  try {
+    const res = await fetch('/api/config');
+    if (!res.ok) return null;
+    return ((await res.json()) as { mspAccount: string | null }).mspAccount;
+  } catch {
+    return null;
+  }
+}
+
 export interface Cursor { ts: string; id: number; }
 
 export async function fetchPodpings(filters: Filters, cursor?: Cursor, limit = 50): Promise<Podping[]> {
