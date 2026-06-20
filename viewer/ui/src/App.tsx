@@ -69,6 +69,7 @@ export function App() {
       <FiltersBar
         value={filters}
         onChange={setFilters}
+        onSearch={(feed) => setFilters(feed ? { feed } : {})}
         media={media}
         live={live}
         onToggleLive={() => setLive((v) => !v)}

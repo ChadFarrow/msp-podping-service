@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import type { Filters } from '../api';
 
 /** "musicL" -> "Music list", "music" -> "Music" */
@@ -10,20 +11,30 @@ function label(medium: string): string {
 export function FiltersBar(props: {
   value: Filters;
   onChange: (f: Filters) => void;
+  onSearch: (feed: string) => void;
   media: string[];
   live: boolean;
   onToggleLive: () => void;
   connected: boolean;
 }) {
-  const { value, onChange, media, live, onToggleLive, connected } = props;
+  const { value, onChange, onSearch, media, live, onToggleLive, connected } = props;
+  const [feedInput, setFeedInput] = useState(value.feed ?? '');
+
+  // Keep the box in sync when filters are cleared/changed elsewhere.
+  useEffect(() => { setFeedInput(value.feed ?? ''); }, [value.feed]);
+
   return (
     <div className="filters">
-      <input
-        className="f-input grow"
-        placeholder="Feed URL or podcast:guid:…"
-        value={value.feed ?? ''}
-        onChange={(e) => onChange({ ...value, feed: e.target.value || undefined })}
-      />
+      <div className="search-group">
+        <input
+          className="f-input grow"
+          placeholder="Feed URL or podcast:guid:…"
+          value={feedInput}
+          onChange={(e) => setFeedInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') onSearch(feedInput.trim()); }}
+        />
+        <button className="search-btn" onClick={() => onSearch(feedInput.trim())}>Search</button>
+      </div>
       <input
         className="f-input"
         placeholder="Signer (e.g. chadf)"

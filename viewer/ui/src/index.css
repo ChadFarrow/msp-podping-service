@@ -91,7 +91,21 @@ a:hover { text-decoration: underline; }
   transition: border-color var(--transition);
 }
 .f-input:focus { border-color: var(--border-focus); }
-.f-input.grow { flex: 1 1 280px; }
+.f-input.grow { flex: 1; min-width: 0; }
+.search-group { display: flex; gap: 8px; flex: 1 1 320px; }
+.search-btn {
+  background: var(--accent-gradient);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 9px 18px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity var(--transition);
+}
+.search-btn:hover { opacity: 0.9; }
 
 .live {
   display: inline-flex;
