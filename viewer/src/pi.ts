@@ -59,7 +59,9 @@ export async function lookupFeed(
     const headers = buildAuthHeaders(pi, Math.floor(Date.now() / 1000));
     let res: Response;
     try {
-      res = await fetchImpl(url, { headers });
+      // Without a timeout a single hung connection never settles, which would
+      // deadlock the enricher's Promise.all and stop all enrichment.
+      res = await fetchImpl(url, { headers, signal: AbortSignal.timeout(8000) });
     } catch {
       if (attempt === 0) continue;
       return null;
