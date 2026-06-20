@@ -30,7 +30,8 @@ export function buildServer(deps: {
       signer: q.signer || undefined,
       type: q.type || undefined,
       limit: q.limit ? Number(q.limit) : undefined,
-      before: q.before ? Number(q.before) : undefined,
+      beforeTs: q.beforeTs || undefined,
+      beforeId: q.beforeId ? Number(q.beforeId) : undefined,
     };
     const podpings = await deps.db.searchPodpings(params);
     return { podpings };

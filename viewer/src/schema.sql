@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS podpings (
   UNIQUE (tx_id, op_idx)
 );
 CREATE INDEX IF NOT EXISTS podpings_ts_idx ON podpings (ts DESC);
+CREATE INDEX IF NOT EXISTS podpings_ts_id_idx ON podpings (ts DESC, id DESC);
 CREATE INDEX IF NOT EXISTS podpings_signer_idx ON podpings (signer);
 CREATE INDEX IF NOT EXISTS podpings_op_id_idx ON podpings (op_id);
 

@@ -26,12 +26,14 @@ export interface Filters {
   type?: string;
 }
 
-export async function fetchPodpings(filters: Filters, before?: number, limit = 50): Promise<Podping[]> {
+export interface Cursor { ts: string; id: number; }
+
+export async function fetchPodpings(filters: Filters, cursor?: Cursor, limit = 50): Promise<Podping[]> {
   const p = new URLSearchParams();
   if (filters.feed) p.set('feed', filters.feed.trim());
   if (filters.signer) p.set('signer', filters.signer.trim());
   if (filters.type) p.set('type', filters.type);
-  if (before) p.set('before', String(before));
+  if (cursor) { p.set('beforeTs', cursor.ts); p.set('beforeId', String(cursor.id)); }
   p.set('limit', String(limit));
   const res = await fetch(`/api/podpings?${p.toString()}`);
   if (!res.ok) throw new Error(`api ${res.status}`);

@@ -21,8 +21,9 @@ export function App() {
     setLoading(true);
     setError(null);
     try {
-      const before = reset ? undefined : rowsRef.current[rowsRef.current.length - 1]?.id;
-      const next = await fetchPodpings(filters, before);
+      const last = reset ? undefined : rowsRef.current[rowsRef.current.length - 1];
+      const cursor = last ? { ts: last.ts, id: last.id } : undefined;
+      const next = await fetchPodpings(filters, cursor);
       setRows((prev) => (reset ? next : [...prev, ...next]));
     } catch (e) {
       setError((e as Error).message);

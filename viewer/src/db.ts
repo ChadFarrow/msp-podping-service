@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { PodpingRecord } from './podping';
 import type { FeedMeta } from './pi';
 
-export interface SearchParams { feed?: string; signer?: string; type?: string; limit?: number; before?: number; }
+export interface SearchParams { feed?: string; signer?: string; type?: string; limit?: number; beforeTs?: string; beforeId?: number; }
 export interface PodpingRow extends PodpingRecord {
   id: number;
   feed?: (FeedMeta & { iri: string }) | null;
@@ -57,7 +57,12 @@ export class Db {
     }
     if (p.signer) { args.push(p.signer); where.push(`p.signer = $${args.length}`); }
     if (p.type) { args.push(p.type + '%'); where.push(`p.op_id LIKE $${args.length}`); }
-    if (p.before) { args.push(p.before); where.push(`p.id < $${args.length}`); }
+    // Keyset cursor over (ts, id) so pagination matches the time ordering below.
+    if (p.beforeTs && p.beforeId) {
+      args.push(p.beforeTs); const tsIdx = args.length;
+      args.push(p.beforeId); const idIdx = args.length;
+      where.push(`(p.ts, p.id) < ($${tsIdx}, $${idIdx})`);
+    }
     args.push(limit);
     const sql = `
       SELECT p.*, f.iri AS f_iri, f.pi_feed_id, f.title, f.author, f.image, f.medium AS f_medium
@@ -67,7 +72,7 @@ export class Db {
         WHERE pi.podping_id = p.id AND fe.not_found = false LIMIT 1
       ) f ON true
       ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-      ORDER BY p.id DESC
+      ORDER BY p.ts DESC, p.id DESC
       LIMIT $${args.length}`;
     const res = await this.pool.query(sql, args);
     return res.rows.map((row) => ({

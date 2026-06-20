@@ -23,10 +23,10 @@ describe('api', () => {
   it('GET /api/podpings passes filters through and returns rows', async () => {
     const d = deps([{ id: 1, signer: 'chadf' }]);
     const app = buildServer(d);
-    const res = await app.inject({ method: 'GET', url: '/api/podpings?feed=https://x/f.xml&signer=chadf&type=pp_music&limit=10&before=99' });
+    const res = await app.inject({ method: 'GET', url: '/api/podpings?feed=https://x/f.xml&signer=chadf&type=pp_music&limit=10&beforeTs=2026-06-20T00:00:00Z&beforeId=99' });
     expect(res.statusCode).toBe(200);
     expect(res.json().podpings).toHaveLength(1);
-    expect(d.db.searchPodpings).toHaveBeenCalledWith({ feed: 'https://x/f.xml', signer: 'chadf', type: 'pp_music', limit: 10, before: 99 });
+    expect(d.db.searchPodpings).toHaveBeenCalledWith({ feed: 'https://x/f.xml', signer: 'chadf', type: 'pp_music', limit: 10, beforeTs: '2026-06-20T00:00:00Z', beforeId: 99 });
     await app.close();
   });
 
