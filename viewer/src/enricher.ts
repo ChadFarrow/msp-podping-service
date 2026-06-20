@@ -10,26 +10,31 @@ export async function enrichBatch(
   batchSize: number,
 ): Promise<number> {
   const pending = await deps.db.irisNeedingEnrichment(batchSize);
-  for (const iri of pending) {
-    const meta = await deps.lookup(iri);
-    await deps.db.upsertFeed(iri, meta); // meta null => marked not_found
-  }
+  // Look feeds up concurrently — the whole batch runs in parallel.
+  await Promise.all(
+    pending.map(async (iri) => {
+      const meta = await deps.lookup(iri);
+      await deps.db.upsertFeed(iri, meta); // meta null => marked not_found
+    }),
+  );
   return pending.length;
 }
 
 export function startEnricher(cfg: Config, db: Db): void {
   const lookup = (iri: string) => lookupFeed(cfg.pi, iri);
+  const batch = Number(process.env.ENRICH_BATCH || 20); // feeds looked up concurrently per tick
+  const intervalMs = Number(process.env.ENRICH_INTERVAL_MS || 1000);
   let running = false;
   setInterval(async () => {
-    if (running) return; // avoid overlap
+    if (running) return; // skip if the previous tick is still in flight
     running = true;
     try {
-      const n = await enrichBatch({ db, lookup }, 10); // ~10/tick keeps PI well under rate limits
+      const n = await enrichBatch({ db, lookup }, batch);
       if (n > 0) console.log(`[enricher] enriched ${n} feeds`);
     } catch (err) {
       console.error('[enricher] batch error:', err);
     } finally {
       running = false;
     }
-  }, 1500);
+  }, intervalMs);
 }

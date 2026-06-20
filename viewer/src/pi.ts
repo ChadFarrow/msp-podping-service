@@ -50,21 +50,30 @@ export async function lookupFeed(
   iri: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<FeedMeta | null> {
-  const nowSeconds = Math.floor(Date.now() / 1000);
-  const headers = buildAuthHeaders(pi, nowSeconds);
   const url = isGuidIri(iri)
     ? `${API}/podcasts/byguid?guid=${encodeURIComponent(guidFromIri(iri))}`
     : `${API}/podcasts/byfeedurl?url=${encodeURIComponent(iri)}`;
-  let res: Response;
-  try {
-    res = await fetchImpl(url, { headers });
-  } catch {
-    return null;
+  // Two attempts: retry once on a network error or 5xx so a transient blip
+  // doesn't get a feed permanently marked as checked/empty.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const headers = buildAuthHeaders(pi, Math.floor(Date.now() / 1000));
+    let res: Response;
+    try {
+      res = await fetchImpl(url, { headers });
+    } catch {
+      if (attempt === 0) continue;
+      return null;
+    }
+    if (res.status >= 500) {
+      if (attempt === 0) continue;
+      return null;
+    }
+    if (res.status !== 200) return null;
+    try {
+      return mapPiFeed(await res.json());
+    } catch {
+      return null;
+    }
   }
-  if (res.status !== 200) return null;
-  try {
-    return mapPiFeed(await res.json());
-  } catch {
-    return null;
-  }
+  return null;
 }
