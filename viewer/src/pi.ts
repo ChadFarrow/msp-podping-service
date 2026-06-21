@@ -11,6 +11,13 @@ export interface FeedMeta {
 const API = 'https://api.podcastindex.org/api/1.0';
 const NOT_FOUND: FeedMeta = { piFeedId: null, title: null, author: null, image: null, medium: null };
 
+// Sampled diagnostic logging so we can see WHY lookups fail (429 vs timeout)
+// without spamming a line per request.
+let _piLogN = 0;
+function piSample(msg: string): void {
+  if (_piLogN++ % 25 === 0) console.warn(msg);
+}
+
 export function buildAuthHeaders(
   pi: { key: string; secret: string; userAgent: string },
   nowSeconds: number,
@@ -64,13 +71,18 @@ export async function lookupFeed(
       res = await fetchImpl(url, { headers, signal: AbortSignal.timeout(8000) });
     } catch {
       if (attempt === 0) continue;
+      piSample('[pi] lookup failed: timeout/network');
       return null;
     }
     if (res.status >= 500) {
       if (attempt === 0) continue;
+      piSample(`[pi] lookup failed: HTTP ${res.status}`);
       return null;
     }
-    if (res.status !== 200) return null;
+    if (res.status !== 200) {
+      piSample(`[pi] lookup failed: HTTP ${res.status}`);
+      return null;
+    }
     try {
       return mapPiFeed(await res.json());
     } catch {

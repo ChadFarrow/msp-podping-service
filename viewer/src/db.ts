@@ -14,6 +14,9 @@ export class Db {
   private pool: Pool;
   constructor(databaseUrl: string) {
     this.pool = new Pool({ connectionString: databaseUrl });
+    // Without this handler, an idle-client connection drop (e.g. Postgres
+    // restarting) emits an unhandled 'error' event and crashes the process.
+    this.pool.on('error', (err) => console.error('[db] pool error (ignored):', err.message));
   }
 
   async migrate(): Promise<void> {
