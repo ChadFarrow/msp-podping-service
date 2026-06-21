@@ -29,18 +29,32 @@ export async function enrichBatch(
 export function startEnricher(cfg: Config, db: Db): void {
   const lookup = (iri: string) => lookupFeed(cfg.pi, iri);
   const batch = Number(process.env.ENRICH_BATCH || 4); // concurrent lookups/tick; keep modest to stay under PI rate limits
-  const intervalMs = Number(process.env.ENRICH_INTERVAL_MS || 1000);
-  let running = false;
-  setInterval(async () => {
-    if (running) return; // skip if the previous tick is still in flight
-    running = true;
+  const baseMs = Number(process.env.ENRICH_INTERVAL_MS || 1000);
+  const maxMs = Number(process.env.ENRICH_MAX_BACKOFF_MS || 5 * 60 * 1000);
+  let delay = baseMs;
+
+  // Self-scheduling loop with adaptive backoff: when every lookup fails (e.g.
+  // Podcast Index temporarily blocks our IP), exponentially back off so we stop
+  // hammering — and snap back to full speed the moment a lookup succeeds.
+  async function tick(): Promise<void> {
     try {
       const { pending, cached } = await enrichBatch({ db, lookup }, batch);
-      if (pending > 0) console.log(`[enricher] cached ${cached}/${pending}`);
+      if (pending === 0) {
+        delay = baseMs; // nothing to do; check again soon
+      } else if (cached > 0) {
+        if (delay !== baseMs) console.log(`[enricher] recovered, resuming full speed`);
+        delay = baseMs;
+        console.log(`[enricher] cached ${cached}/${pending}`);
+      } else {
+        delay = Math.min(delay * 2, maxMs);
+        console.warn(`[enricher] 0/${pending} cached (PI likely throttling) — backing off ${Math.round(delay / 1000)}s`);
+      }
     } catch (err) {
-      console.error('[enricher] batch error:', err);
+      delay = Math.min(delay * 2, maxMs);
+      console.error('[enricher] batch error, backing off:', (err as Error).message);
     } finally {
-      running = false;
+      setTimeout(tick, delay);
     }
-  }, intervalMs);
+  }
+  void tick();
 }
