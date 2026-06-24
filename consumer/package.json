@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "check-podping": "node dist/check-podping.js",
+    "resolve-feed": "node dist/resolve-feed.js",
     "dev": "tsc --watch"
   },
   "engines": {
