@@ -4,10 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`msp-podping-service` does two related things on a single Railway container:
+`msp-podping-service` does three related things across two Railway services:
 
 1. **Pusher** (original): receives HTTP podping requests from [MSP 2.0](https://github.com/ChadFarrow/MSP-2.0), validates a shared bearer token, and forwards to hivepinger, which broadcasts `podping` `custom_json` ops to the Hive blockchain.
 2. **Consumer** (added later): tails the Hive blockchain for `pp_music_*` podpings (from *any* signer, not just MSP), and forwards them to [stablekraft-app](https://github.com/ChadFarrow/stablekraft-app) so it can refresh its music-feed database in near-real-time.
+3. **Viewer** (`viewer/`, separate Railway service + `pp_database` Postgres plugin): tails the whole Hive podping firehose into Postgres, enriches feeds via Podcast Index, and serves a search + live-SSE API/UI (destined for `pp.musicsideproject.com`). It keeps a disposable ~30-day rolling cache of podpings. See `viewer/README.md` for its own deploy + tuning docs.
+
+The pusher and consumer share **one container** (the Dockerfile/entrypoint at repo root). The viewer is a **second, independent Railway service** rooted at `viewer/` with its own Postgres plugin — it does not run in the pusher/consumer container.
 
 ## Architecture
 
@@ -43,10 +46,43 @@ All three run in the background under a single bash entrypoint; `wait -n` return
 │   ├── package.json
 │   ├── tsconfig.json
 │   └── src/index.ts        # Hive block stream → classifier → stablekraft-app HTTP poster
+├── viewer/                 # SEPARATE Railway service: Hive firehose → Postgres → search API/UI
+│   ├── package.json
+│   ├── src/                # collector/enricher/pruner/api workers, backfill.ts, config, db, schema.sql
+│   ├── ui/                 # static front-end assets
+│   └── README.md           # viewer deploy + Postgres memory/cost tuning
 ├── .gitignore
 ├── README.md               # User-facing deploy instructions
 └── CLAUDE.md               # (this file)
 ```
+
+## Viewer Service & `pp_database` (Postgres memory/cost)
+
+The `viewer/` service and its `pp_database` Postgres plugin are a **separate Railway
+service** from the pusher/consumer container. The DB is a disposable ~30-day rolling cache
+of podpings (re-derivable from Hive), so it can be RAM-capped aggressively. Full detail lives
+in `viewer/README.md`; the load-bearing gotchas:
+
+- **Railway's stock Postgres image ignores bare GUC names set as service Variables.**
+  `shared_buffers`, `work_mem`, `maintenance_work_mem`, `effective_cache_size`,
+  `max_connections` set as env vars **do nothing** — only `POSTGRES_*` init vars are read.
+  To tune the server, pass `-c` flags on the start command or mount a `postgresql.conf`.
+  (Setting these as Variables was the original cause of a doubled bill and had zero effect.)
+- **The real cost lever is the container's memory cap** (Postgres service → Settings →
+  Resource Limits / Scale → Replica Limits), *not* Postgres tuning. A near-idle DB (CPU ~0)
+  still climbs toward whatever RAM ceiling it's given, because free RAM becomes OS page cache
+  + Postgres buffers, and Railway bills on memory *used*. Capping RAM bounds the cache, which
+  bounds the bill. This workload sits comfortably at ~500 MB; 512 MB–1 GB is the right range.
+- **`effective_cache_size` allocates zero memory** (planner hint only) — never lower it to
+  "save RAM." `shared_buffers` is the only up-front allocation.
+- **Bloat reclaim:** the pruner DELETEs old rows; autovacuum reclaims lazily. A one-time
+  `VACUUM (FULL, ANALYZE) podpings;` / `... podping_iris;` (run inside `psql`, not the
+  container's bash shell) shrinks the on-disk files and the cached working set.
+- **Connection budget:** the running server's pool is capped by `PG_POOL_MAX` (default 10).
+  The one-shot `viewer/src/backfill.ts` opens its **own** pool of up to 10, so backfilling
+  against prod while the server is live needs ~20 connections and can trip *"too many
+  connections"* if Postgres `max_connections` is low. Don't backfill concurrently, or lower
+  `PG_POOL_MAX` / raise `max_connections` first.
 
 ## Why a Template + sed Render?
 
