@@ -7,6 +7,7 @@ export interface Config {
   corsOrigins: string[];
   port: number;
   mspAccount: string | null;
+  pgPoolMax: number;
 }
 
 const DEFAULT_RPC = [
@@ -46,5 +47,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     corsOrigins: list(env.CORS_ORIGINS, []),
     port: env.PORT ? Number(env.PORT) : 8080,
     mspAccount: (env.MSP_ACCOUNT || env.HIVE_ACCOUNT_NAME || 'chadf').trim().toLowerCase() || null,
+    // Cap the pg connection pool so backends don't multiply against a low
+    // Postgres max_connections. Default matches pg's own default (10).
+    pgPoolMax: env.PG_POOL_MAX ? Number(env.PG_POOL_MAX) : 10,
   };
 }

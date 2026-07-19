@@ -18,6 +18,11 @@ describe('loadConfig', () => {
     expect(c.corsOrigins).toEqual([]);
     expect(c.pi.userAgent).toContain('msp-podping-viewer');
     expect(c.mspAccount).toBe('chadf');
+    expect(c.pgPoolMax).toBe(10);
+  });
+
+  it('lets PG_POOL_MAX override the pool size', () => {
+    expect(loadConfig({ ...base, PG_POOL_MAX: '5' } as any).pgPoolMax).toBe(5);
   });
 
   it('lets MSP_ACCOUNT override the msp account', () => {

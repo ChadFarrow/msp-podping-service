@@ -9,7 +9,7 @@ import { join } from 'node:path';
 
 async function main() {
   const cfg = loadConfig(process.env);
-  const db = new Db(cfg.databaseUrl);
+  const db = new Db(cfg.databaseUrl, cfg.pgPoolMax);
   await db.migrate();
   console.log('[viewer] migrated; starting workers');
 
