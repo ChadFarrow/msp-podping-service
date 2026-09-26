@@ -7,7 +7,7 @@ import type { FeedMeta } from './pi';
 export interface SearchParams { feed?: string; signer?: string; medium?: string; limit?: number; beforeTs?: string; beforeId?: number; }
 /**
  * A feed whose most recent live-ish podping (in the window) says `live`.
- * `ts` is when the collector recorded that podping.
+ * `ts` is the time of that podping's block.
  */
 export interface LiveFeedRow {
   iri: string;

@@ -19,6 +19,13 @@ describe('loadConfig', () => {
     expect(c.pi.userAgent).toContain('msp-podping-viewer');
     expect(c.mspAccount).toBe('chadf');
     expect(c.pgPoolMax).toBe(10);
+    expect(c.maxCatchupBlocks).toBe(28_800);
+  });
+
+  it('lets MAX_CATCHUP_BLOCKS set the catch-up limit, and 0 or empty remove it', () => {
+    expect(loadConfig({ ...base, MAX_CATCHUP_BLOCKS: '1200' } as any).maxCatchupBlocks).toBe(1200);
+    expect(loadConfig({ ...base, MAX_CATCHUP_BLOCKS: '0' } as any).maxCatchupBlocks).toBeNull();
+    expect(loadConfig({ ...base, MAX_CATCHUP_BLOCKS: '' } as any).maxCatchupBlocks).toBeNull();
   });
 
   it('lets PG_POOL_MAX override the pool size', () => {

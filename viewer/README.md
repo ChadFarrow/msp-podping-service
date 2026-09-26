@@ -13,6 +13,10 @@ The UI (separate plan) will live at **pp.musicsideproject.com**.
    - `RETENTION_DAYS` (optional, default 30; empty = keep forever)
    - `CORS_ORIGINS=https://pp.musicsideproject.com,https://musicsideproject.com`
    - `PG_POOL_MAX` (optional, default 10) — caps this service's Postgres connection pool.
+   - `MAX_CATCHUP_BLOCKS` (optional, default 28800 ≈ 24 h) — after a restart, a stored block
+     further behind the chain than this is not replayed: the collector skips to the head and
+     logs the skipped range. `0` = always replay in full. A podping's `ts` is its block's time,
+     so a replayed podping keeps its real age.
 4. Deploy. Check logs for `[collector] streaming from block N` and `[viewer] API listening`.
 
 ## Postgres memory & cost (the `pp_database` plugin)
