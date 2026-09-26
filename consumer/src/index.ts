@@ -1,4 +1,5 @@
 import { Client, BlockchainMode, Operation, SignedBlock } from '@hiveio/dhive';
+import { type ExistsAnswer, parseExistsBody, refreshUrlFor } from './refresh-target.js';
 
 const {
   STABLEKRAFT_BASE_URL,
@@ -75,14 +76,13 @@ function iriToQuery(iri: string): IriMatchQuery | null {
   return null;
 }
 
-async function checkExists(q: IriMatchQuery): Promise<boolean> {
+async function checkExists(q: IriMatchQuery): Promise<ExistsAnswer> {
   const params = new URLSearchParams();
   if (q.url) params.set('url', q.url);
   if (q.guid) params.set('guid', q.guid);
   const res = await fetch(`${baseUrl}/api/feeds/exists?${params.toString()}`);
   if (!res.ok) throw new Error(`exists ${res.status}`);
-  const body = (await res.json()) as { exists?: boolean };
-  return Boolean(body.exists);
+  return parseExistsBody(await res.json());
 }
 
 async function postJson(path: string, body: unknown): Promise<Response> {
@@ -119,28 +119,31 @@ async function handleIri(txId: string, iri: string, fromMsp: boolean): Promise<v
     return;
   }
 
-  let exists: boolean;
+  let answer: ExistsAnswer;
   try {
-    exists = await checkExists(q);
+    answer = await checkExists(q);
   } catch (err) {
     console.warn(`[${txId}] exists check failed for ${iri}:`, err);
     return;
   }
+  const exists = answer.exists;
 
-  if (exists && q.url) {
+  // A guid-only podping refreshes the URL stablekraft stores for that guid
+  // (exists?guid= returns it) — see refresh-target.ts.
+  const refreshUrl = refreshUrlFor(q, answer);
+  if (refreshUrl) {
     const res = await withRetry(`refresh ${iri}`, async () => {
-      const r = await postJson('/api/feeds/refresh-by-url', { originalUrl: q.url });
+      const r = await postJson('/api/feeds/refresh-by-url', { originalUrl: refreshUrl });
       if (r.status >= 500) throw new Error(`5xx ${r.status}`);
       return r;
     });
-    if (res) console.log(`[${txId}] refresh ${res.status} ${iri}`);
+    if (res) console.log(`[${txId}] refresh ${res.status} ${iri}${q.url ? '' : ` via ${refreshUrl}`}`);
     return;
   }
 
   if (exists && q.guid) {
-    // Feed is tracked by GUID, but refresh-by-url needs a URL. Skip — podping should
-    // typically carry a URL form if we're meant to refresh. Revisit if this is common.
-    console.log(`[${txId}] tracked by guid ${q.guid}, no URL variant in podping; skip refresh`);
+    // Tracked by guid, but this stablekraft returned no URL to refresh with.
+    console.log(`[${txId}] tracked by guid ${q.guid}, no URL from stablekraft; skip refresh`);
     return;
   }
 

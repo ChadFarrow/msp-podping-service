@@ -159,17 +159,17 @@ Single file: `consumer/src/index.ts`. Only runtime dep: `@hiveio/dhive`.
 - **Persistence: none.** If the container is down more than the rewind window (~10 min by default), podpings in the gap are lost. Acceptable for a music cache. Bump `CONSUMER_REWIND_BLOCKS` or add a Railway Volume + checkpoint file if that changes.
 - **Filter**: `op[0] === 'custom_json' && op[1].id.startsWith('pp_music_')`. Accepts future variants like `pp_music_liveitem` — do not narrow to exact-string match.
 - **Classification per tx**: decode `op[1].json` into `{ iris: string[] }`. For each iri (URL or `podcast:guid:<guid>`):
-  - If stablekraft-app already tracks it (`GET /api/feeds/exists`) → `POST /api/feeds/refresh-by-url`
+  - If stablekraft-app already tracks it (`GET /api/feeds/exists`) → `POST /api/feeds/refresh-by-url` with the podping's URL, or for a guid iri the `url` that `exists` returned (no `url` → logged skip)
   - Else if the podping's `required_posting_auths[0]` (lowercased) === `HIVE_ACCOUNT_NAME.toLowerCase()` → `POST /api/feeds` with `type: 'album'`
   - Else → skip silently. Don't log one line per skipped iri; it's too chatty.
-- **Error policy**: per-URL retry ×2 with 2s/8s backoff on 5xx or network error; log-and-skip on 4xx; `setTimeout(reconnect, 5000)` on stream drop. Bad JSON in a podping: log tx id and skip. Never halt the stream.
+- **Error policy**: per-URL retry ×2 with 2s/8s backoff on 5xx or network error; log-and-skip on 4xx (and on stablekraft's `202 { queued }`, which means the feed was refreshed in the last 5 minutes and one more refresh is already scheduled there); `setTimeout(reconnect, 5000)` on stream drop. Bad JSON in a podping: log tx id and skip. Never halt the stream.
 - **Observability**: `[consumer] streaming from block N` on connect; `[consumer] processed N blocks, head=X` every 100 blocks; `[txid] pp_music_update signer=... iris=N` per matched op; `[txid] refresh 200 <url>` or `[txid] import(msp) 201 <url>` on success.
 
 ## stablekraft-app Dependency
 
 The consumer depends on three HTTP endpoints on stablekraft-app:
 
-- `GET  /api/feeds/exists?url=<URL>` or `?guid=<GUID>` — returns `{ exists: boolean }`. Blacklisted URLs always return `exists: false`.
+- `GET  /api/feeds/exists?url=<URL>` or `?guid=<GUID>` — returns `{ exists: boolean }`; a `?guid=` hit also returns `url` (the feed URL stablekraft stores), which the consumer uses to refresh a feed that a podping named only as `podcast:guid:` (`consumer/src/refresh-target.ts`). Blacklisted URLs always return `exists: false`.
 - `POST /api/feeds/refresh-by-url` — body `{ originalUrl: string }` — refresh a tracked feed.
 - `POST /api/feeds` — body `{ originalUrl: string, type: string }` — import a new feed.
 

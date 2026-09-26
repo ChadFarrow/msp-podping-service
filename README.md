@@ -103,7 +103,7 @@ On the MSP Vercel project, set:
 
 The consumer calls three endpoints, all currently unauthenticated:
 
-- `GET  /api/feeds/exists?url=<URL>` or `?guid=<GUID>` — returns `{ exists: boolean }`. Blacklisted URLs always return `exists: false`.
+- `GET  /api/feeds/exists?url=<URL>` or `?guid=<GUID>` — returns `{ exists: boolean }`; a `?guid=` hit also returns `url` (the feed URL stablekraft stores), which the consumer uses to refresh a feed that a podping named only as `podcast:guid:` (`consumer/src/refresh-target.ts`). Blacklisted URLs always return `exists: false`.
 - `POST /api/feeds/refresh-by-url` with body `{ originalUrl }` — refreshes a tracked feed.
 - `POST /api/feeds` with body `{ originalUrl, type: "album" }` — imports a new feed (MSP-signed podpings only).
 
