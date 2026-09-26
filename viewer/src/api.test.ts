@@ -7,6 +7,7 @@ function deps(rows: any[] = []) {
       searchPodpings: vi.fn(async (_p: any) => rows),
       lastBlock: vi.fn(async () => 12345),
       mediums: vi.fn(async () => ['podcast', 'music', 'video']),
+      liveFeeds: vi.fn(async (_h: number, _l: number) => [{ iri: 'https://x/live.xml', ts: '2026-09-26T00:00:00.000Z', piFeedId: 7, title: 'L', image: null, medium: 'podcast' }]),
     },
     corsOrigins: ['https://musicsideproject.com'],
     mspAccount: 'chadf',
@@ -29,6 +30,27 @@ describe('api', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().podpings).toHaveLength(1);
     expect(d.db.searchPodpings).toHaveBeenCalledWith({ feed: 'https://x/f.xml', signer: 'chadf', medium: 'music', limit: 10, beforeTs: '2026-06-20T00:00:00Z', beforeId: 99 });
+    await app.close();
+  });
+
+  it('GET /api/live returns live feeds with a 24 h default window', async () => {
+    const d = deps();
+    const app = buildServer(d);
+    const res = await app.inject({ method: 'GET', url: '/api/live' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().hours).toBe(24);
+    expect(res.json().feeds[0].piFeedId).toBe(7);
+    expect(d.db.liveFeeds).toHaveBeenCalledWith(24, 200);
+    await app.close();
+  });
+
+  it('GET /api/live clamps the window and ignores junk', async () => {
+    const d = deps();
+    const app = buildServer(d);
+    await app.inject({ method: 'GET', url: '/api/live?hours=1000' });
+    expect(d.db.liveFeeds).toHaveBeenLastCalledWith(48, 200);
+    await app.inject({ method: 'GET', url: '/api/live?hours=abc' });
+    expect(d.db.liveFeeds).toHaveBeenLastCalledWith(24, 200);
     await app.close();
   });
 

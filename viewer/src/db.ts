@@ -5,6 +5,19 @@ import type { PodpingRecord } from './podping';
 import type { FeedMeta } from './pi';
 
 export interface SearchParams { feed?: string; signer?: string; medium?: string; limit?: number; beforeTs?: string; beforeId?: number; }
+/**
+ * A feed whose most recent live-ish podping (in the window) says `live`.
+ * `ts` is the time of that podping's block.
+ */
+export interface LiveFeedRow {
+  iri: string;
+  ts: string;
+  piFeedId: number | null;
+  title: string | null;
+  image: string | null;
+  medium: string | null;
+}
+
 export interface PodpingRow extends PodpingRecord {
   id: number;
   feed?: (FeedMeta & { iri: string }) | null;
@@ -89,6 +102,42 @@ export class Db {
       signer: row.signer, opId: row.op_id, medium: row.medium, reason: row.reason,
       iris: row.iris, raw: row.raw,
       feed: row.f_iri ? { iri: row.f_iri, piFeedId: row.pi_feed_id == null ? null : Number(row.pi_feed_id), title: row.title, author: row.author, image: row.image, medium: row.f_medium } : null,
+    }));
+  }
+
+  /**
+   * Feeds currently live according to podping: the NEWEST `live`/`liveEnd`
+   * podping for each iri inside the window is a `live`. A `liveEnd` after it
+   * takes the feed off; a feed that never sends `liveEnd` ages out with the
+   * window. Podping is a hint, not proof — consumers should still read the
+   * feed's own `<podcast:liveItem status>`.
+   *
+   * `lower()` because the reason is copied from the op id verbatim
+   * (`pp_podcast_liveEnd` → `liveEnd`), and signers do not agree on case.
+   */
+  async liveFeeds(hours: number, limit: number): Promise<LiveFeedRow[]> {
+    const res = await this.pool.query(
+      `SELECT latest.iri, latest.ts, f.pi_feed_id, f.title, f.image, f.medium
+       FROM (
+         SELECT DISTINCT ON (pi.iri) pi.iri, lower(p.reason) AS reason, p.ts
+         FROM podpings p JOIN podping_iris pi ON pi.podping_id = p.id
+         WHERE lower(p.reason) IN ('live', 'liveend')
+           AND p.ts > now() - make_interval(hours => $1)
+         ORDER BY pi.iri, p.ts DESC, p.id DESC
+       ) latest
+       LEFT JOIN feeds f ON f.iri = latest.iri AND f.not_found = false
+       WHERE latest.reason = 'live'
+       ORDER BY latest.ts DESC
+       LIMIT $2`,
+      [hours, limit],
+    );
+    return res.rows.map((r) => ({
+      iri: r.iri,
+      ts: r.ts instanceof Date ? r.ts.toISOString() : r.ts,
+      piFeedId: r.pi_feed_id == null ? null : Number(r.pi_feed_id),
+      title: r.title ?? null,
+      image: r.image ?? null,
+      medium: r.medium ?? null,
     }));
   }
 

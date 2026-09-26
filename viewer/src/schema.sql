@@ -17,6 +17,8 @@ CREATE INDEX IF NOT EXISTS podpings_ts_idx ON podpings (ts DESC);
 CREATE INDEX IF NOT EXISTS podpings_ts_id_idx ON podpings (ts DESC, id DESC);
 CREATE INDEX IF NOT EXISTS podpings_signer_idx ON podpings (signer);
 CREATE INDEX IF NOT EXISTS podpings_op_id_idx ON podpings (op_id);
+-- /api/live: live/liveEnd podpings inside a time window.
+CREATE INDEX IF NOT EXISTS podpings_reason_ts_idx ON podpings (lower(reason), ts DESC);
 
 CREATE TABLE IF NOT EXISTS podping_iris (
   podping_id  BIGINT NOT NULL REFERENCES podpings(id) ON DELETE CASCADE,

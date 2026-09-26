@@ -82,6 +82,29 @@ d('Db', () => {
     expect(await db.irisNeedingEnrichment(50)).not.toContain('https://requeue/x.xml');
   });
 
+  it('liveFeeds: newest live/liveEnd podping per feed decides, inside the window', async () => {
+    const now = Date.now();
+    const at = (minAgo: number) => new Date(now - minAgo * 60_000).toISOString();
+    const live = (iri: string, minAgo: number, opId = 'pp_podcast_live') =>
+      db.insertPodping(rec({ iris: [iri], ts: at(minAgo), opId, medium: 'podcast', reason: opId.split('_').slice(2).join('_') }));
+    await live('https://lf/on.xml', 30);
+    await live('https://lf/ended.xml', 60);
+    await live('https://lf/ended.xml', 10, 'pp_podcast_liveEnd');
+    await live('https://lf/restarted.xml', 90);
+    await live('https://lf/restarted.xml', 60, 'pp_podcast_liveEnd');
+    await live('https://lf/restarted.xml', 5);
+    await live('https://lf/old.xml', 60 * 30);
+    await live('https://lf/lower.xml', 20, 'pp_podcast_liveend');
+    await db.insertPodping(rec({ iris: ['https://lf/update.xml'], ts: at(1), opId: 'pp_podcast_update', reason: 'update' }));
+    await db.upsertFeed('https://lf/on.xml', { piFeedId: 42, title: 'On', author: null, image: null, medium: 'podcast' });
+
+    const rows = await db.liveFeeds(24, 200);
+    const iris = rows.map((r) => r.iri).filter((i) => i.startsWith('https://lf/'));
+    expect(iris).toEqual(['https://lf/restarted.xml', 'https://lf/on.xml']);
+    expect(rows.find((r) => r.iri === 'https://lf/on.xml')?.piFeedId).toBe(42);
+    expect(rows.find((r) => r.iri === 'https://lf/restarted.xml')?.piFeedId).toBeNull();
+  });
+
   it('prune is a no-op when retention is null', async () => {
     expect(await db.prune(null)).toBe(0);
   });
