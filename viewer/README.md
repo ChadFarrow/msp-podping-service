@@ -46,6 +46,7 @@ can be RAM-capped aggressively. If its Railway memory/cost climbs, note:
 
 ## Endpoints
 - `GET /api/podpings?feed=&signer=&type=&limit=&before=`
+- `GET /api/live?hours=24` — feeds whose newest `live`/`liveEnd` podping in the window is `live` (max 48 h, 200 rows)
 - `GET /api/podpings/stream` (SSE)
 - `GET /health`
 

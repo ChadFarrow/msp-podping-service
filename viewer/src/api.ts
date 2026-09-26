@@ -3,7 +3,7 @@ import type { Db, PodpingRow, SearchParams } from './db';
 import { bus, sseFrame } from './events';
 
 export function buildServer(deps: {
-  db: Pick<Db, 'searchPodpings' | 'lastBlock' | 'mediums'>;
+  db: Pick<Db, 'searchPodpings' | 'lastBlock' | 'mediums' | 'liveFeeds'>;
   corsOrigins: string[];
   mspAccount?: string | null;
 }): FastifyInstance {
@@ -40,6 +40,18 @@ export function buildServer(deps: {
     };
     const podpings = await deps.db.searchPodpings(params);
     return { podpings };
+  });
+
+  // Feeds whose latest podping in the window is `live` (not followed by a
+  // `liveEnd`). Used by boostmebitch's Live tab as a global roster: Podcast
+  // Index's /episodes/live misses shows that are on air.
+  app.get('/api/live', async (req, reply) => {
+    const q = req.query as Record<string, string | undefined>;
+    const raw = Number(q.hours);
+    const hours = Number.isFinite(raw) && raw > 0 ? Math.min(raw, 48) : 24;
+    const feeds = await deps.db.liveFeeds(hours, 200);
+    reply.header('Cache-Control', 'public, max-age=30');
+    return { hours, feeds };
   });
 
   app.get('/api/podpings/stream', (req, reply) => {
