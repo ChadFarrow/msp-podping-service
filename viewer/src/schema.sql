@@ -19,6 +19,9 @@ CREATE INDEX IF NOT EXISTS podpings_signer_idx ON podpings (signer);
 CREATE INDEX IF NOT EXISTS podpings_op_id_idx ON podpings (op_id);
 -- /api/live: live/liveEnd podpings inside a time window.
 CREATE INDEX IF NOT EXISTS podpings_reason_ts_idx ON podpings (lower(reason), ts DESC);
+-- /health and the collector's resume point: max(block_num). Without it that
+-- read the whole table — 3.1 s on the 225 MB production table (2026-10-04).
+CREATE INDEX IF NOT EXISTS podpings_block_num_idx ON podpings (block_num);
 
 CREATE TABLE IF NOT EXISTS podping_iris (
   podping_id  BIGINT NOT NULL REFERENCES podpings(id) ON DELETE CASCADE,
