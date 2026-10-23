@@ -1,4 +1,4 @@
-FROM node:20-slim AS build
+FROM node:24-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install
@@ -9,7 +9,7 @@ RUN npm run build
 COPY ui ./ui
 RUN cd ui && npm install && npm run build && mkdir -p /app/dist/ui && cp -r dist/* /app/dist/ui/
 
-FROM node:20-slim
+FROM node:24-slim
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package.json package-lock.json* ./
