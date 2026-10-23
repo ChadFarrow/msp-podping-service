@@ -105,6 +105,30 @@ d('Db', () => {
     expect(rows.find((r) => r.iri === 'https://lf/restarted.xml')?.piFeedId).toBeNull();
   });
 
+  it('lastBlock is the highest block_num, read from an index rather than the table', async () => {
+    const ts = new Date().toISOString(); // inside retention, so the prune tests below keep it
+    await db.insertPodping(rec({ blockNum: 110_000_001, ts }));
+    await db.insertPodping(rec({ blockNum: 110_000_000, ts }));
+    expect(await db.lastBlock()).toBe(110_000_001);
+
+    // /health and every collector (re)start run this. With no index on block_num
+    // it read the whole table: 3.1 s against the 225 MB production table on
+    // 2026-10-04, which shared_buffers (128 MB) cannot hold. Seq scans are off so
+    // the plan says whether an index COULD answer it, whatever the table's size.
+    const pool = new Pool({ connectionString: url });
+    const client = await pool.connect();
+    try {
+      await client.query('SET enable_seqscan = off');
+      const res = await client.query('EXPLAIN SELECT max(block_num) AS b FROM podpings');
+      const plan = res.rows.map((r) => r['QUERY PLAN']).join('\n');
+      expect(plan).toMatch(/Index (Only )?Scan.* on podpings/);
+      expect(plan).not.toMatch(/Seq Scan/);
+    } finally {
+      client.release();
+      await pool.end();
+    }
+  });
+
   it('prune is a no-op when retention is null', async () => {
     expect(await db.prune(null)).toBe(0);
   });
