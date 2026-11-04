@@ -1,4 +1,4 @@
-import { Pool } from 'pg';
+import { Pool, type PoolClient } from 'pg';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PodpingRecord } from './podping';
@@ -23,6 +23,24 @@ export interface PodpingRow extends PodpingRecord {
   feed?: (FeedMeta & { iri: string }) | null;
 }
 
+/**
+ * Keeps a lost connection from killing the process while a client is out of the pool.
+ *
+ * pg-pool's listener only covers idle clients, and pool.query() adds its own, so a
+ * client from pool.connect() is the one case with none: a drop during a query emits an
+ * 'error' event nobody hears, and Node exits. The query still rejects, so the caller
+ * finds out either way. Ten of those exits used up Railway's restart limit and left the
+ * viewer down from 2026-10-10 to 2026-10-23.
+ *
+ * Call the returned function before release(). Pooled clients are reused, so a listener
+ * left on one would pile up.
+ */
+export function guardCheckedOutClient(client: PoolClient): () => void {
+  const onError = (err: Error) => console.error('[db] connection lost during a query:', err.message);
+  client.on('error', onError);
+  return () => { client.removeListener('error', onError); };
+}
+
 export class Db {
   private pool: Pool;
   constructor(databaseUrl: string, poolMax?: number) {
@@ -39,6 +57,7 @@ export class Db {
 
   async insertPodping(r: PodpingRecord): Promise<number | null> {
     const client = await this.pool.connect();
+    const stopGuarding = guardCheckedOutClient(client);
     try {
       await client.query('BEGIN');
       const res = await client.query(
@@ -56,9 +75,11 @@ export class Db {
       await client.query('COMMIT');
       return id;
     } catch (e) {
-      await client.query('ROLLBACK');
+      // On a dead connection this rejects too, and must not replace the real error.
+      await client.query('ROLLBACK').catch(() => {});
       throw e;
     } finally {
+      stopGuarding();
       client.release();
     }
   }

@@ -20,6 +20,11 @@ describe('loadConfig', () => {
     expect(c.mspAccount).toBe('chadf');
     expect(c.pgPoolMax).toBe(10);
     expect(c.maxCatchupBlocks).toBe(28_800);
+    expect(c.healthMaxLagSeconds).toBe(600);
+  });
+
+  it('lets HEALTH_MAX_LAG_SECONDS set the /health limit', () => {
+    expect(loadConfig({ ...base, HEALTH_MAX_LAG_SECONDS: '120' } as any).healthMaxLagSeconds).toBe(120);
   });
 
   it('lets MAX_CATCHUP_BLOCKS set the catch-up limit, and 0 or empty remove it', () => {

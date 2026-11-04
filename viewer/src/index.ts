@@ -5,6 +5,7 @@ import { startEnricher } from './enricher';
 import { startPruner } from './pruner';
 import { buildServer } from './api';
 import { registerUi } from './static';
+import { CollectorProgress } from './health';
 import { join } from 'node:path';
 
 async function main() {
@@ -13,11 +14,18 @@ async function main() {
   await db.migrate();
   console.log('[viewer] migrated; starting workers');
 
-  startCollector(cfg, db);
+  const progress = new CollectorProgress();
+  startCollector(cfg, db, progress);
   startEnricher(cfg, db);
   startPruner(cfg, db);
 
-  const app = buildServer({ db, corsOrigins: cfg.corsOrigins, mspAccount: cfg.mspAccount });
+  const app = buildServer({
+    db,
+    corsOrigins: cfg.corsOrigins,
+    mspAccount: cfg.mspAccount,
+    progress,
+    healthMaxLagSeconds: cfg.healthMaxLagSeconds,
+  });
   await registerUi(app, join(__dirname, 'ui'));
   await app.listen({ host: '0.0.0.0', port: cfg.port });
   console.log(`[viewer] API listening on :${cfg.port}`);
