@@ -6,15 +6,17 @@ Self-hosted [podping-hivepinger](https://github.com/brianoflondon/podping-hivepi
 
 Two directions:
 
-- **Out** (pusher): receives HTTP podping requests from MSP, validates a shared bearer token, and forwards to hivepinger which queues, dedups, and broadcasts `podping` `custom_json` ops to the Hive blockchain.
+- **Out** (pusher): receives HTTP podping requests from MSP, validates a shared bearer token, and forwards to hivepinger which queues, dedups, and broadcasts `podping` `custom_json` ops to the Hive blockchain. Optionally (`GOSSIP_SIGNING_KEY`), each podping written to Hive is also broadcast on the podping gossip network, which some indexers watch instead of Hive.
 - **In** (consumer): tails the Hive blockchain for any `pp_music_*` or `pp_podcast_*` podping (from any signer, not just MSP), and calls stablekraft-app's public feed endpoints. Tracked feeds get refreshed; untracked feeds get imported only when the podping was signed by our MSP Hive account. Music-content podcasts hosted on platforms that emit `pp_podcast_*` (e.g. Podhome for UpBeats, Boo Bury's "Before the Schemes") refresh within ~1 minute of publish instead of waiting for stablekraft-app's 4 AM cron.
 
 ## Architecture
 
-Single container, three processes supervised by `entrypoint.sh`:
+Single container, three processes (plus an optional gossip-writer) supervised by `entrypoint.sh`:
 
 ```
 MSP (Vercel) ──Bearer──► Caddy :$PORT ──► hivepinger 127.0.0.1:8000 ──► Hive
+                                              │                          │
+                                              └─ZMQ─► gossip-writer ─► podping gossip network (optional)
                                                                          │
                                                                          ▼
                                              consumer (Node) ──► stablekraft.app
@@ -41,11 +43,20 @@ All three processes are supervised via `wait -n` + `trap 'kill 0'`: any crash te
    - `HIVE_RPC_NODES` (optional) — comma-separated fallback list. Default: `https://api.hive.blog,https://api.deathwing.me,https://hive-api.arcange.eu`.
    - `CONSUMER_REWIND_BLOCKS` (optional) — how many blocks to rewind on boot. Default `200` (~10 min).
    - `CONSUMER_ENABLED` (optional) — set to `false` to keep the consumer idle on boot without a rebuild. Default `true`.
+   - `GOSSIP_SIGNING_KEY` (optional) — turns on the gossip broadcast. Generate once with `openssl rand -hex 32` and never change it (see *Gossip* below).
+   - `GOSSIP_ENABLED` (optional) — set to `false` to turn gossip off but keep the key. Default `true`.
 3. Deploy. Railway will build the Dockerfile, start the container, and expose it on the `$PORT` it injects.
 4. Verify health: `curl https://<railway-url>/health` → JSON from hivepinger (200 when healthy).
 5. Verify auth gate: `curl -i https://<railway-url>/` → `401 Unauthorized`
 6. Verify pusher (no broadcast): `curl -H "Authorization: Bearer $SECRET" "https://<railway-url>/?url=https://example.com/feed.xml&reason=update&no_broadcast=true&detailed_response=true"` → 200 JSON
 7. Verify consumer: check Railway logs for `[consumer] streaming from block …` within a few seconds of boot.
+8. Verify gossip (when the key is set): check Railway logs for `[gossip] enabled`, `Sender pubkey: <hex>` and `Subscribed to gossip topic.`
+
+## Gossip
+
+hivepinger writes to Hive only. Some indexers (musicindex.org, podping gossip watchers) read the podping **gossip network** instead, so without this they never see MSP's podpings. With `GOSSIP_SIGNING_KEY` set, the container also runs Podcast Index's [`gossip-writer`](https://github.com/Podcastindex-org/podping-gossipwriter); hivepinger forwards every podping it wrote to Hive to it, and the writer signs it and broadcasts it.
+
+Gossip watchers accept only signers that are on their trusted-publishers list. After the first deploy with a key, copy the `Sender pubkey: <hex>` line from the Railway logs and ask the gossip operators to trust that key. Until they do, the broadcasts reach the swarm but watchers drop them. The key is the identity they trust, so keep `GOSSIP_SIGNING_KEY` fixed.
 
 ## Local development
 
@@ -86,11 +97,14 @@ On the MSP Vercel project, set:
 
 **Consumer only** (stop reacting to Hive podpings): set `CONSUMER_ENABLED=false` on Railway. The consumer boots idle; pusher and Caddy keep working.
 
+**Gossip only**: set `GOSSIP_ENABLED=false` on Railway. Hive writes continue.
+
 ## Implementation notes
 
 - **Base image**: `brianoflondon/podping-hivepinger:1.4.1` on Docker Hub. Pinned to a specific tag — never `:latest`. Check [Docker Hub tags](https://hub.docker.com/r/brianoflondon/podping-hivepinger/tags) before bumping.
-- **Caddy binary**: installed in the Dockerfile from the official v2.8.4 tarball with a pinned SHA-256 (`a7e8306c…`). Keeps the Debian base from `python:3.13-slim` under `brianoflondon/podping-hivepinger`.
-- **Node.js**: installed via NodeSource's apt repo in the Dockerfile (currently Node 20) so the consumer has a runtime.
+- **Caddy binary**: installed in the Dockerfile from the official v2.11.3 tarball with a pinned SHA-256. Keeps the Debian base from `python:3.13-slim` under `brianoflondon/podping-hivepinger`.
+- **Node.js**: installed via NodeSource's apt repo in the Dockerfile (currently Node 24) so the consumer has a runtime.
+- **gossip-writer**: binary copied from `podcastindexorg/podping-gossipwriter:0.15.0` (pinned by digest); its ZMQ is built in, and it needs only `libstdc++6` beyond libc. It runs in its own restart loop, so a crash restarts only the writer, never the pusher.
 - **Config rendering**: `entrypoint.sh` renders `Caddyfile.template` → `/etc/caddy/Caddyfile` via `sed` at container start, substituting `__PORT__` and `__PODPING_SHARED_SECRET__`. Avoids Caddy's placeholder quirks inside `header` matcher values.
 - **Hivepinger invocation**: `python -m hivepinger.api --host 127.0.0.1 --port 8000` (the 1.4.x CLI is flat — no `serve` subcommand, and the module entry is `hivepinger.api`, not `hivepinger`).
 - **Consumer Hive client**: `@hiveio/dhive` with multi-RPC failover. Streams blocks in `Irreversible` mode (~45s lag, no fork handling). Rewinds `CONSUMER_REWIND_BLOCKS` (default 200) on boot, uses an in-memory LRU of 5000 tx ids for dedup during the rewind window. No persistence — trade-off: downtime > 10 min loses podpings in the gap.

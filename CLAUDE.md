@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `msp-podping-service` does three related things across two Railway services:
 
-1. **Pusher** (original): receives HTTP podping requests from [MSP 2.0](https://github.com/ChadFarrow/MSP-2.0), validates a shared bearer token, and forwards to hivepinger, which broadcasts `podping` `custom_json` ops to the Hive blockchain.
+1. **Pusher** (original): receives HTTP podping requests from [MSP 2.0](https://github.com/ChadFarrow/MSP-2.0), validates a shared bearer token, and forwards to hivepinger, which broadcasts `podping` `custom_json` ops to the Hive blockchain. With `GOSSIP_SIGNING_KEY` set, each podping written to Hive is also broadcast on the podping **gossip network** by a bundled `gossip-writer` (see *Gossip Writer* below).
 2. **Consumer** (added later): tails the Hive blockchain for `pp_music_*` podpings (from *any* signer, not just MSP), and forwards them to [stablekraft-app](https://github.com/ChadFarrow/stablekraft-app) so it can refresh its music-feed database in near-real-time.
 3. **Viewer** (`viewer/`, separate Railway service + `pp_database` Postgres plugin): tails the whole Hive podping firehose into Postgres, enriches feeds via Podcast Index, and serves a search + live-SSE API/UI (destined for `pp.musicsideproject.com`). It keeps a disposable ~30-day rolling cache of podpings. See `viewer/README.md` for its own deploy + tuning docs.
 
@@ -16,8 +16,11 @@ The pusher and consumer share **one container** (the Dockerfile/entrypoint at re
 
 ```
                                                     ┌─► Hive (writes)
-MSP (Vercel) ──Bearer──► Caddy :$PORT ──► hivepinger─┘
+MSP (Vercel) ──Bearer──► Caddy :$PORT ──► hivepinger─┤
                                            127.0.0.1:8000
+                                                    └─ZMQ 127.0.0.1:9998─► gossip-writer ─► iroh gossip
+                                                       (only after a successful Hive write;
+                                                        only when GOSSIP_SIGNING_KEY is set)
 
 consumer (Node) ──reads──► Hive block stream
      │
@@ -26,20 +29,21 @@ consumer (Node) ──reads──► Hive block stream
                             /api/feeds                   (MSP-signed untracked → import)
 ```
 
-Single container, **three processes** supervised by `entrypoint.sh`:
+Single container, **three processes** supervised by `entrypoint.sh`, plus an optional fourth:
 
 - **hivepinger** (Python, upstream image `brianoflondon/podping-hivepinger:1.4.1`) — binds to `127.0.0.1:8000`, never public
-- **consumer** (Node 20, built from `consumer/` in this repo) — outbound only, no bindings
+- **consumer** (Node 24, built from `consumer/` in this repo) — outbound only, no bindings
 - **Caddy v2** — binds to Railway's `$PORT`, reverse-proxies `/health` and bearer-auth-gated traffic to hivepinger
+- **gossip-writer** (Rust binary from `podcastindexorg/podping-gossipwriter`, optional) — binds ZMQ to `127.0.0.1:9998`, talks outbound to the gossip swarm. Runs in its own restart loop, so its exit never stops the container.
 
-All three run in the background under a single bash entrypoint; `wait -n` returns as soon as any one exits so Railway's container supervisor restarts the whole container. There's no silent-hivepinger-death failure mode.
+The first three run in the background under a single bash entrypoint; `wait -n` returns as soon as any one exits so Railway's container supervisor restarts the whole container. There's no silent-hivepinger-death failure mode. The gossip-writer loop never exits, so it never triggers `wait -n`.
 
 ## Repository Layout
 
 ```
 .
-├── Dockerfile              # Layers Caddy + Node + consumer onto the hivepinger base image
-├── entrypoint.sh           # Renders Caddyfile from template, supervises all three processes
+├── Dockerfile              # Layers Caddy + Node + consumer + gossip-writer onto the hivepinger base image
+├── entrypoint.sh           # Renders Caddyfile from template, supervises the processes
 ├── Caddyfile.template      # Caddy config with __PORT__ and __PODPING_SHARED_SECRET__ placeholders
 ├── compose.yml             # Local-dev wrapper around the Dockerfile
 ├── consumer/               # Node/TypeScript consumer (built into the Docker image)
@@ -98,12 +102,13 @@ The `sed` delimiter is `|`. Safe because `PODPING_SHARED_SECRET` is generated vi
 2. Fails fast with `set -e` and `: "${PODPING_SHARED_SECRET:?...}"` if the secret is unset. Prevents a silent public deploy.
 3. Renders `Caddyfile.template` → `/etc/caddy/Caddyfile`.
 4. Installs `trap 'kill 0' EXIT INT TERM` so a dying child reaps its siblings when the trap fires on exit.
+4a. Gossip: if `GOSSIP_SIGNING_KEY` is 64 hex chars and `GOSSIP_ENABLED` is not `false`, writes the key as 32 raw bytes to `/data/gossip/iroh.key` (mode 600, via stdin so it never shows in `ps`), exports `GOSSIP_WRITER_ENABLED=true` + `GOSSIP_WRITER_ZMQ` for hivepinger, and starts `gossip-writer` in a `set +e` restart loop. Otherwise it logs `[gossip] disabled: <reason>` and exports `GOSSIP_WRITER_ENABLED=false`. No gossip failure may exit the entrypoint.
 5. Starts hivepinger in the background: `(cd /hivepinger && python -m hivepinger.api --host 127.0.0.1 --port 8000) &`. The 1.4.x CLI is flat — no `serve` subcommand; module entry is `hivepinger.api`, not `hivepinger`.
 6. Starts the consumer: `node /consumer/dist/index.js &`.
 7. Starts Caddy: `caddy run --config /etc/caddy/Caddyfile --adapter caddyfile &`.
 8. `wait -n` returns when any child exits; `exit $?` propagates the non-zero code so Railway restarts the container.
 
-None of the three processes is PID 1 anymore — bash is. Don't add `exec` to any of the child launches; it breaks the `wait -n` pattern.
+None of the processes is PID 1 anymore — bash is. Don't add `exec` to any of the child launches; it breaks the `wait -n` pattern.
 
 ## Required Env Vars (Railway Service Variables)
 
@@ -117,12 +122,48 @@ None of the three processes is PID 1 anymore — bash is. Don't add `exec` to an
 | `CONSUMER_REWIND_BLOCKS` | No | How many irreversible blocks to rewind on boot. Default `200` (~10 min). |
 | `CONSUMER_ENABLED` | No | Set to `false` to idle the consumer on boot without a rebuild. Default `true`. |
 | `PORT` | No | Railway auto-injects; Caddy defaults to `:8080` if unset |
+| `GOSSIP_SIGNING_KEY` | No | 64 hex chars (`openssl rand -hex 32`). The gossip publisher's ed25519 secret key. Unset → gossip off. **Never change it once its pubkey is trusted.** |
+| `GOSSIP_ENABLED` | No | Set to `false` to turn gossip off without removing the key. Default `true`. |
+| `GOSSIP_FRIENDLY_NAME` | No | Peer name shown to the swarm. Default `MSP2.0-podping`. |
+| `GOSSIP_KEY_SEED` + `GOSSIP_KEY_DISCRIMINATOR` | No | Passed straight to gossip-writer: derive a stable iroh *node* key. Without them the node key is new each boot, which is fine — trust uses only the signing key. |
 
 Debug-only:
 
 | Name | Purpose |
 |---|---|
 | `CONSUMER_SMOKE_ANY_PP` | If `true`, broadens the consumer's filter from `pp_music_` to any `pp_` podping. Useful for smoke tests — music podpings are rare and might not show up in a short window. Never set this in production. |
+
+## Gossip Writer
+
+Why it exists: some indexers (musicindex.org, the podping-gossipwatcher archives) read the
+podping **iroh gossip network** (topic `gossipping/v1/all`), not Hive. podping.cloud writes
+to both; hivepinger writes to Hive only. Before this, MSP's podpings were on Hive but those
+indexers never saw them (found 2026-11-05: five `chadf` podpings for headstarts.uk feeds
+were on Hive and missing from gossip).
+
+- **Trust is the catch.** Every gossip watcher checks each notification's ed25519 signature
+  against its own `trusted_publishers.txt` and drops the rest. Our writer prints
+  `Sender pubkey: <hex>` at startup; that pubkey must be added by the gossip operators (or
+  endorsed by an already-trusted node via `PeerEndorse`) before anyone sees our podpings.
+  So the signing key must stay fixed: it lives in the `GOSSIP_SIGNING_KEY` Railway secret,
+  not in a container file. A new key means asking for trust again.
+- **What triggers a gossip send:** hivepinger calls the writer only after a *successful Hive
+  write* (`api.py`, `if result.success:` → `gossip_client.send_podping_writes`). A failed
+  Hive write sends nothing to gossip.
+- **Plumbing:** ZMQ PAIR socket on `127.0.0.1:9998`; one Cap'n Proto `PodpingWrite` per IRI;
+  the writer batches them about every 3 s. hivepinger 1.4.1 already ships `pycapnp` and
+  `pyzmq`. The Rust binary has ZMQ built in; beyond libc it links only `libstdc++6` and
+  `libgcc_s` (checked with `ldd`), which the Dockerfile installs explicitly.
+- **Memory:** about 70–130 MB (the podping.cloud writers' figure). The writer's own memwatch
+  re-execs it in place if iroh leaks; that is not a container exit.
+- **Logs:** `[gossip] enabled|disabled: …`, then the writer's own startup block (`Sender pubkey`,
+  `Iroh Node ID`, `Subscribed to gossip topic.`). hivepinger logs
+  `Gossip writer enabled, connected to tcp://127.0.0.1:9998`.
+- **Expected boot warning:** hivepinger also logs `Gossip client could not verify TCP
+  connection … will retry on send`. Ignore it. In local tests it appeared even when the writer
+  was already listening, and the link still came up (an ESTABLISHED `127.0.0.1:9998` pair in
+  `/proc/net/tcp`; the writer acknowledged the sends). ZMQ also reconnects by itself after a
+  writer restart.
 
 ## Caddy Auth Gate
 
@@ -178,8 +219,9 @@ All three are currently unauthenticated. If that changes, the consumer will need
 ## Upstream Dependencies
 
 - **hivepinger**: `brianoflondon/podping-hivepinger` on Docker Hub. Current pin: `1.4.1`. Check [tags](https://hub.docker.com/r/brianoflondon/podping-hivepinger/tags) before bumping. Never `:latest`. CLI invocation changes between minor versions (`1.3 → 1.4` required dropping the `serve` subcommand); revalidate the `python -m hivepinger.api` line after any bump.
-- **Caddy**: v2.8.4, downloaded as a binary from the official GitHub release in the Dockerfile with a pinned SHA-256 (`a7e8306c…`). To bump, fetch the new checksum with `curl -sfL https://github.com/caddyserver/caddy/releases/download/vX.Y.Z/caddy_X.Y.Z_linux_amd64.tar.gz | shasum -a 256`.
-- **Node.js**: currently Node 20 via NodeSource apt repo. Bump by changing `NODE_MAJOR` in the Dockerfile ARG.
+- **Caddy**: v2.11.3, downloaded as a binary from the official GitHub release in the Dockerfile with a pinned SHA-256 (`CADDY_VERSION` / `CADDY_SHA256` ARGs). To bump, fetch the new checksum with `curl -sfL https://github.com/caddyserver/caddy/releases/download/vX.Y.Z/caddy_X.Y.Z_linux_amd64.tar.gz | shasum -a 256`.
+- **Node.js**: currently Node 24 via NodeSource apt repo. Bump by changing `NODE_MAJOR` in the Dockerfile ARG.
+- **gossip-writer**: binary copied from `podcastindexorg/podping-gossipwriter:0.15.0`, pinned by digest in the Dockerfile's first `FROM`. amd64 only. Source: [Podcastindex-org/podping-gossipwriter](https://github.com/Podcastindex-org/podping-gossipwriter). To bump, read the new tag's digest from `https://hub.docker.com/v2/repositories/podcastindexorg/podping-gossipwriter/tags/<tag>` (`.digest`), and check the binary still lives at `/opt/gossip-writer/gossip-writer` and that `docker run --rm --platform linux/amd64 --entrypoint ldd <image> /usr/local/bin/gossip-writer` shows no `not found`.
 - **@hiveio/dhive**: only runtime dep in the consumer. Official TypeScript Hive client. Check `consumer/package.json` for the pinned range.
 
 ## Hive / Podping Notes
@@ -202,6 +244,8 @@ If MSP still has the old token during the redeploy window, its podping calls wil
 **Pusher only** (MSP stops podping): unset `PODPING_ENDPOINT_URL` or `PODPING_BEARER_TOKEN` on MSP's Vercel project. MSP's `notifyPodping()` silently no-ops. No redeploy on this side.
 
 **Consumer only** (stop reacting to Hive): set `CONSUMER_ENABLED=false` on Railway. The consumer boots idle. Pusher and Caddy keep working.
+
+**Gossip only** (stop broadcasting on gossip): set `GOSSIP_ENABLED=false` on Railway. Hive writes continue. Keep `GOSSIP_SIGNING_KEY` so the trusted identity survives.
 
 **Full**: pause or delete the Railway service. MSP's podping calls error out but its primary flow continues (podping is best-effort).
 
