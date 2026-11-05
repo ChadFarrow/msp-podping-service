@@ -10,6 +10,8 @@ export interface Config {
   port: number;
   mspAccount: string | null;
   pgPoolMax: number;
+  /** /health answers 503 when the collector is further behind the chain than this. */
+  healthMaxLagSeconds: number;
 }
 
 const DEFAULT_RPC = [
@@ -60,5 +62,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     // Cap the pg connection pool so backends don't multiply against a low
     // Postgres max_connections. Default matches pg's own default (10).
     pgPoolMax: env.PG_POOL_MAX ? Number(env.PG_POOL_MAX) : 10,
+    healthMaxLagSeconds: env.HEALTH_MAX_LAG_SECONDS ? Number(env.HEALTH_MAX_LAG_SECONDS) : 600,
   };
 }

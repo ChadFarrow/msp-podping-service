@@ -71,6 +71,36 @@ describe('processBlock timestamps', () => {
   });
 });
 
+describe('processBlock progress', () => {
+  const db = () => ({
+    insertPodping: vi.fn(async () => 1),
+    getFeed: vi.fn(async () => null),
+  });
+
+  it('records the block time once the block is stored', async () => {
+    const progress = { record: vi.fn() };
+    await processBlock(block('2026-08-10T03:29:03') as any, 1, { db: db(), emit: () => {}, progress } as any);
+    expect(progress.record).toHaveBeenCalledWith('2026-08-10T03:29:03.000Z');
+  });
+
+  it('records a block with no podpings, so a quiet chain does not read as stale', async () => {
+    const progress = { record: vi.fn() };
+    const empty = { timestamp: '2026-08-10T03:29:03', transaction_ids: [], transactions: [] };
+    await processBlock(empty as any, 1, { db: db(), emit: () => {}, progress } as any);
+    expect(progress.record).toHaveBeenCalledTimes(1);
+  });
+
+  // With the database failing, the collector retries the same block forever. That
+  // has to show as lag, or /health stays green while nothing is stored.
+  it('does not record a block it failed to store', async () => {
+    const progress = { record: vi.fn() };
+    const failing = { insertPodping: vi.fn(async () => { throw new Error('db down'); }), getFeed: vi.fn() };
+    await expect(processBlock(block('2026-08-10T03:29:03') as any, 1, { db: failing, emit: () => {}, progress } as any))
+      .rejects.toThrow('db down');
+    expect(progress.record).not.toHaveBeenCalled();
+  });
+});
+
 describe('blockTime', () => {
   it('reads Hive\'s zone-less timestamp as UTC', () => {
     expect(blockTime('2026-09-26T01:02:03')).toBe('2026-09-26T01:02:03.000Z');

@@ -3,6 +3,7 @@ import { classifyOp } from './podping';
 import type { Db, PodpingRow } from './db';
 import { bus } from './events';
 import type { Config } from './config';
+import type { CollectorProgress } from './health';
 
 /**
  * When a podping happened: its block's own timestamp. Hive writes it in UTC
@@ -50,7 +51,11 @@ export function resumeFrom(
 export async function processBlock(
   block: { timestamp?: string; transaction_ids: string[]; transactions: { operations: [string, any][] }[] },
   blockNum: number,
-  deps: { db: Pick<Db, 'insertPodping' | 'getFeed'>; emit: (row: PodpingRow) => void },
+  deps: {
+    db: Pick<Db, 'insertPodping' | 'getFeed'>;
+    emit: (row: PodpingRow) => void;
+    progress?: Pick<CollectorProgress, 'record'>;
+  },
 ): Promise<number> {
   let count = 0;
   const ts = blockTime(block.timestamp);
@@ -73,10 +78,11 @@ export async function processBlock(
       deps.emit({ ...rec, id, feed });
     }
   }
+  deps.progress?.record(ts);
   return count;
 }
 
-export function startCollector(cfg: Config, db: Db): void {
+export function startCollector(cfg: Config, db: Db, progress: CollectorProgress): void {
   const client = new Client(cfg.rpcNodes, { failoverThreshold: 3, timeout: 8000 });
   (async function run() {
     try {
@@ -92,7 +98,7 @@ export function startCollector(cfg: Config, db: Db): void {
       let seen = 0;
       for await (const block of client.blockchain.getBlocks({ from, mode: 1 /* Irreversible */ })) {
         const blockNum = parseInt((block as any).block_id.slice(0, 8), 16);
-        await processBlock(block as any, blockNum, { db, emit: (row) => bus.emit('podping', row) });
+        await processBlock(block as any, blockNum, { db, emit: (row) => bus.emit('podping', row), progress });
         if (++seen % 100 === 0) console.log(`[collector] processed ${seen} blocks, head=${blockNum}`);
       }
     } catch (err) {

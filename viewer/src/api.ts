@@ -1,11 +1,14 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { Db, PodpingRow, SearchParams } from './db';
 import { bus, sseFrame } from './events';
+import type { CollectorProgress } from './health';
 
 export function buildServer(deps: {
   db: Pick<Db, 'searchPodpings' | 'lastBlock' | 'mediums' | 'liveFeeds'>;
   corsOrigins: string[];
   mspAccount?: string | null;
+  progress: Pick<CollectorProgress, 'lagSeconds'>;
+  healthMaxLagSeconds: number;
 }): FastifyInstance {
   const app = Fastify({ logger: false });
 
@@ -22,7 +25,15 @@ export function buildServer(deps: {
     }
   });
 
-  app.get('/health', async () => ({ ok: true, lastBlock: await deps.db.lastBlock() }));
+  // 503 when the collector has fallen behind, so a monitor can catch a viewer that still
+  // answers but stopped collecting. A database that is down fails this with a 500.
+  app.get('/health', async (_req, reply) => {
+    const lastBlock = await deps.db.lastBlock();
+    const lagSeconds = deps.progress.lagSeconds();
+    const ok = lagSeconds <= deps.healthMaxLagSeconds;
+    if (!ok) reply.code(503);
+    return { ok, lastBlock, lagSeconds };
+  });
 
   app.get('/api/media', async () => ({ media: await deps.db.mediums() }));
 

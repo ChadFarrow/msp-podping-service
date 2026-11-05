@@ -1,6 +1,7 @@
 import { Client } from '@hiveio/dhive';
 import { Pool } from 'pg';
 import { classifyOp, type PodpingRecord } from './podping';
+import { guardCheckedOutClient } from './db';
 
 const DEFAULT_RPC = [
   'https://api.hive.blog',
@@ -27,6 +28,7 @@ export function blockTs(ts: string): string {
 export async function flush(pool: Pool, recs: PodpingRecord[]): Promise<number> {
   if (recs.length === 0) return 0;
   const client = await pool.connect();
+  const stopGuarding = guardCheckedOutClient(client);
   try {
     await client.query('BEGIN');
     const cols = 10;
@@ -62,9 +64,11 @@ export async function flush(pool: Pool, recs: PodpingRecord[]): Promise<number> 
     await client.query('COMMIT');
     return ins.rowCount ?? 0;
   } catch (e) {
-    await client.query('ROLLBACK');
+    // On a dead connection this rejects too, and must not replace the real error.
+    await client.query('ROLLBACK').catch(() => {});
     throw e;
   } finally {
+    stopGuarding();
     client.release();
   }
 }

@@ -17,7 +17,23 @@ The UI (separate plan) will live at **pp.musicsideproject.com**.
      further behind the chain than this is not replayed: the collector skips to the head and
      logs the skipped range. `0` = always replay in full. A podping's `ts` is its block's time,
      so a replayed podping keeps its real age.
-4. Deploy. Check logs for `[collector] streaming from block N` and `[viewer] API listening`.
+   - `HEALTH_MAX_LAG_SECONDS` (optional, default 600) — `/health` answers 503 when the last
+     stored block is older than this.
+4. In the service's Settings → Deploy, set **Restart Policy** to **Always**. Under On Failure
+   with 10 retries, this service stayed down after 10 restarts spread over 3 days in
+   October 2026.
+5. Deploy. Check logs for `[collector] streaming from block N` and `[viewer] API listening`.
+
+## Staying up
+
+`.github/workflows/viewer-health.yml` reads `/health` twice an hour, and GitHub emails a failed
+run to whoever last changed its schedule. A new process answers 200 until its grace period
+(`HEALTH_MAX_LAG_SECONDS`) runs out. It can answer 503 for a while after an outage, until the
+collector has caught up.
+
+A connection to Postgres can drop at any time, so nothing here may rely on it staying up. A
+`pool.connect()` client needs `guardCheckedOutClient()`, or a drop during a query kills the
+process. `pool.query()` needs nothing.
 
 ## Postgres memory & cost (the `pp_database` plugin)
 
@@ -52,7 +68,7 @@ can be RAM-capped aggressively. If its Railway memory/cost climbs, note:
 - `GET /api/podpings?feed=&signer=&type=&limit=&before=`
 - `GET /api/live?hours=24` — feeds whose newest `live`/`liveEnd` podping in the window is `live` (max 48 h, 200 rows)
 - `GET /api/podpings/stream` (SSE)
-- `GET /health`
+- `GET /health` — `{ ok, lastBlock, lagSeconds }`; 503 when `lagSeconds` is past `HEALTH_MAX_LAG_SECONDS`
 
 ## Local dev
 ```bash

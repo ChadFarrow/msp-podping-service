@@ -1,8 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { buildServer } from './api';
 
-function deps(rows: any[] = []) {
+function deps(rows: any[] = [], lagSeconds = 5) {
   return {
+    progress: { lagSeconds: () => lagSeconds },
+    healthMaxLagSeconds: 600,
     db: {
       searchPodpings: vi.fn(async (_p: any) => rows),
       lastBlock: vi.fn(async () => 12345),
@@ -15,11 +17,28 @@ function deps(rows: any[] = []) {
 }
 
 describe('api', () => {
-  it('GET /health reports lastBlock', async () => {
+  it('GET /health reports lastBlock and how far behind the chain it is', async () => {
     const app = buildServer(deps());
     const res = await app.inject({ method: 'GET', url: '/health' });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ ok: true, lastBlock: 12345 });
+    expect(res.json()).toEqual({ ok: true, lastBlock: 12345, lagSeconds: 5 });
+    await app.close();
+  });
+
+  // The viewer once answered from a collector that was not advancing. A monitor
+  // can only catch that if the status code says so.
+  it('GET /health answers 503 past the lag limit', async () => {
+    const app = buildServer(deps([], 601));
+    const res = await app.inject({ method: 'GET', url: '/health' });
+    expect(res.statusCode).toBe(503);
+    expect(res.json()).toEqual({ ok: false, lastBlock: 12345, lagSeconds: 601 });
+    await app.close();
+  });
+
+  it('GET /health stays 200 at exactly the lag limit', async () => {
+    const app = buildServer(deps([], 600));
+    const res = await app.inject({ method: 'GET', url: '/health' });
+    expect(res.statusCode).toBe(200);
     await app.close();
   });
 
