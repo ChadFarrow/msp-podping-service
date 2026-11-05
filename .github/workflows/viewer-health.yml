@@ -1,0 +1,28 @@
+name: Viewer health
+
+# The viewer sat dead from 2026-10-10 to 2026-10-23, and earlier from 2026-08-10 to
+# 2026-09-26, with nothing to say so. /health answers 503 when the collector falls behind,
+# and GitHub emails a failed scheduled run to whoever last changed the schedule below.
+#
+# GitHub starts scheduled runs late and sometimes skips one, which is fine for catching an
+# outage measured in days. It also turns off a schedule after 60 days with no repo activity,
+# so this needs turning back on from the Actions tab if the repo goes quiet.
+on:
+  schedule:
+    - cron: '17,47 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # The retries ride out a deploy, which restarts the viewer. /health can take up to
+      # 15 s while its query reads the whole table, so --max-time has room for that.
+      - name: GET /health
+        run: >-
+          curl --fail-with-body --silent --show-error
+          --max-time 60 --retry 3 --retry-delay 60 --retry-all-errors
+          https://pp.musicsideproject.com/health
