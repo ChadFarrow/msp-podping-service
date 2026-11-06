@@ -141,12 +141,17 @@ to both; hivepinger writes to Hive only. Before this, MSP's podpings were on Hiv
 indexers never saw them (found 2026-11-05: five `chadf` podpings for headstarts.uk feeds
 were on Hive and missing from gossip).
 
-- **Trust is the catch.** Every gossip watcher checks each notification's ed25519 signature
-  against its own `trusted_publishers.txt` and drops the rest. Our writer prints
-  `Sender pubkey: <hex>` at startup; that pubkey must be added by the gossip operators (or
-  endorsed by an already-trusted node via `PeerEndorse`) before anyone sees our podpings.
-  So the signing key must stay fixed: it lives in the `GOSSIP_SIGNING_KEY` Railway secret,
-  not in a container file. A new key means asking for trust again.
+- **Trust decides who sees us.** A gossip watcher with an *empty* `trusted_publishers.txt`
+  accepts every signer (the default). A watcher *with* a list checks each notification's
+  ed25519 signature against it and drops the rest, so it ignores MSP until our pubkey is on
+  its list. A watcher also auto-adds every key that an already-trusted sender endorses
+  (`PeerEndorse`); each gossip-writer endorses the keys in its own trust list every 600 s.
+  So one entry in the podping.cloud writers' lists would spread our key to every watcher
+  that trusts podping.cloud. Nobody keeps a shared list.
+- **Production identity:** `Sender pubkey: 0f9516b8034bf448ec1f15e705fcd072e05ca5c405357d5e4a92b171c1af5d24`,
+  peer name `MSP2.0-podping` (since 2026-11-05). The signing key must stay fixed: it lives
+  only in the `GOSSIP_SIGNING_KEY` Railway secret, not in a container file. A new key means
+  asking for trust again.
 - **What triggers a gossip send:** hivepinger calls the writer only after a *successful Hive
   write* (`api.py`, `if result.success:` → `gossip_client.send_podping_writes`). A failed
   Hive write sends nothing to gossip.
@@ -164,6 +169,15 @@ were on Hive and missing from gossip).
   was already listening, and the link still came up (an ESTABLISHED `127.0.0.1:9998` pair in
   `/proc/net/tcp`; the writer acknowledged the sends). ZMQ also reconnects by itself after a
   writer restart.
+- **Railway:** the pusher is project `podping`, service `msp-podping-service`. The *other*
+  service called `msp-podping-service` (project `pp.musicsideproject.com`) is the viewer.
+- **Production test (2026-11-05, passed):** run a local accept-all watcher
+  (`podcastindexorg/podping-gossipwatcher:0.15.0` with an empty `TRUSTED_PUBLISHERS_FILE`;
+  amd64 only, so on the Mac mini start Colima with `--vz-rosetta`), then send one podping for
+  a feed you own through the pusher with the bearer token
+  (`/?url=…&reason=update&medium=…&detailed_response=true`). Expect `enqueued`, a `PODPING:`
+  line from the sender pubkey above with `sig_status: VALID` about 12 s later, and the
+  matching `chadf` op on Hive.
 
 ## Caddy Auth Gate
 
