@@ -56,7 +56,7 @@ All three processes are supervised via `wait -n` + `trap 'kill 0'`: any crash te
 
 hivepinger writes to Hive only. Some indexers (musicindex.org, podping gossip watchers) read the podping **gossip network** instead, so without this they never see MSP's podpings. With `GOSSIP_SIGNING_KEY` set, the container also runs Podcast Index's [`gossip-writer`](https://github.com/Podcastindex-org/podping-gossipwriter); hivepinger forwards every podping it wrote to Hive to it, and the writer signs it and broadcasts it.
 
-Gossip watchers accept only signers that are on their trusted-publishers list. After the first deploy with a key, copy the `Sender pubkey: <hex>` line from the Railway logs and ask the gossip operators to trust that key. Until they do, the broadcasts reach the swarm but watchers drop them. The key is the identity they trust, so keep `GOSSIP_SIGNING_KEY` fixed.
+A gossip watcher with an empty trusted-publishers list accepts every signer. A watcher with a list drops our podpings until our key is on it, so ask its operator to add the `Sender pubkey: <hex>` line from the Railway logs. The key is the identity they trust, so keep `GOSSIP_SIGNING_KEY` fixed.
 
 ## Local development
 
