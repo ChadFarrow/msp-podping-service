@@ -34,11 +34,15 @@ A local timer does not send an email. Add an alert when the check fails. For exa
 
 ```ini
 # /etc/systemd/system/pp-health.service
+[Unit]
+OnFailure=pp-health-alert.service
+
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/curl --fail-with-body --silent --show-error --max-time 60 --retry 3 --retry-delay 60 --retry-all-errors https://pp.musicsideproject.com/health
-OnFailure=pp-health-alert.service
 ```
+
+`OnFailure=` must be in the `[Unit]` section. In `[Service]`, systemd ignores it and no alert is sent.
 
 `pp-health-alert.service` can send a push notice (for example with ntfy) or an email.
 
