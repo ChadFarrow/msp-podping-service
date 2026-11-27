@@ -1,5 +1,6 @@
 import { Client, BlockchainMode, Operation, SignedBlock } from '@hiveio/dhive';
 import { type ExistsAnswer, parseExistsBody, refreshUrlFor } from './refresh-target.js';
+import { USER_AGENT } from './user-agent.js';
 
 const {
   STABLEKRAFT_BASE_URL,
@@ -80,7 +81,9 @@ async function checkExists(q: IriMatchQuery): Promise<ExistsAnswer> {
   const params = new URLSearchParams();
   if (q.url) params.set('url', q.url);
   if (q.guid) params.set('guid', q.guid);
-  const res = await fetch(`${baseUrl}/api/feeds/exists?${params.toString()}`);
+  const res = await fetch(`${baseUrl}/api/feeds/exists?${params.toString()}`, {
+    headers: { 'User-Agent': USER_AGENT },
+  });
   if (!res.ok) throw new Error(`exists ${res.status}`);
   return parseExistsBody(await res.json());
 }
@@ -88,7 +91,7 @@ async function checkExists(q: IriMatchQuery): Promise<ExistsAnswer> {
 async function postJson(path: string, body: unknown): Promise<Response> {
   return fetch(`${baseUrl}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'User-Agent': USER_AGENT },
     body: JSON.stringify(body),
   });
 }

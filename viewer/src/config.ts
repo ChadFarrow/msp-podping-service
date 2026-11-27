@@ -1,3 +1,5 @@
+import { USER_AGENT } from './user-agent';
+
 export interface Config {
   databaseUrl: string;
   pi: { key: string; secret: string; userAgent: string };
@@ -50,7 +52,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     pi: {
       key: required(env, 'PODCASTINDEX_API_KEY'),
       secret: required(env, 'PODCASTINDEX_API_SECRET'),
-      userAgent: env.PI_USER_AGENT || 'msp-podping-viewer/1.0',
+      userAgent: env.PI_USER_AGENT || USER_AGENT,
     },
     retentionDays,
     rpcNodes: list(env.HIVE_RPC_NODES, DEFAULT_RPC),
