@@ -23,6 +23,7 @@
  * Exit code 0 = found, 1 = not found, 2 = bad usage/missing creds.
  */
 import { createHash } from 'node:crypto';
+import { USER_AGENT } from './user-agent.js';
 
 const API_BASE = 'https://api.podcastindex.org/api/1.0';
 
@@ -59,7 +60,7 @@ function authHeaders(key: string, secret: string): Record<string, string> {
   const date = Math.floor(Date.now() / 1000).toString();
   const hash = createHash('sha1').update(key + secret + date).digest('hex');
   return {
-    'User-Agent': 'msp-podping-service/1.0',
+    'User-Agent': USER_AGENT,
     'X-Auth-Key': key,
     'X-Auth-Date': date,
     Authorization: hash,
