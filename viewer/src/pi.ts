@@ -40,9 +40,15 @@ export function guidFromIri(iri: string): string {
   return iri.slice('podcast:guid:'.length);
 }
 
-export function mapPiFeed(body: any): FeedMeta {
+/** True when a Podcast Index answer holds a feed object (an unknown guid gives `feed: []`). */
+function hasFeed(body: any): boolean {
   const feed = body?.feed;
-  if (!feed || Array.isArray(feed) || typeof feed !== 'object') return { ...NOT_FOUND };
+  return !!feed && !Array.isArray(feed) && typeof feed === 'object';
+}
+
+export function mapPiFeed(body: any): FeedMeta {
+  if (!hasFeed(body)) return { ...NOT_FOUND };
+  const feed = body.feed;
   return {
     piFeedId: typeof feed.id === 'number' ? feed.id : null,
     title: feed.title ?? null,
@@ -52,17 +58,54 @@ export function mapPiFeed(body: any): FeedMeta {
   };
 }
 
+/**
+ * - `found`: Podcast Index returned the feed.
+ * - `not_found`: Podcast Index does not know the feed. The enricher stores that, and the
+ *   queue goes on; the feed is checked again after a recheck window.
+ * - `transient`: rate limit, server error, network, or our own credentials. The feed stays
+ *   queued, and nothing is stored.
+ */
+export type LookupResult =
+  | { kind: 'found'; meta: FeedMeta }
+  | { kind: 'not_found' }
+  | { kind: 'transient'; reason: string };
+
+/** Waits before the 2nd and the 3rd try of a 429, a 5xx, a timeout or a network error. */
+export const RETRY_DELAYS_MS = [2000, 8000];
+
+/**
+ * What a non-200 status means for one feed. Podcast Index's answers, checked 2026-11-28:
+ * an unknown feed URL gives 400 {"status":"false","description":"Feed url not found."},
+ * an unknown guid gives 200 with `feed: []`, and a bad key, secret or X-Auth-Date gives 401.
+ * So a 4xx is about this request, except 401/403 (our credentials: true for every feed,
+ * so never "not found") and 408/429 (try again later).
+ */
+function classifyStatus(status: number): 'retry' | 'auth' | 'not_found' | 'other' {
+  if (status === 429 || status === 408 || status >= 500) return 'retry';
+  if (status === 401 || status === 403) return 'auth';
+  if (status >= 400) return 'not_found';
+  return 'other';
+}
+
+/** Free the connection of a response whose body we do not read. */
+function discard(res: Response): void {
+  res.body?.cancel().catch(() => {});
+}
+
+const realSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 export async function lookupFeed(
   pi: { key: string; secret: string; userAgent: string },
   iri: string,
   fetchImpl: typeof fetch = fetch,
-): Promise<FeedMeta | null> {
+  sleep: (ms: number) => Promise<void> = realSleep,
+): Promise<LookupResult> {
   const url = isGuidIri(iri)
     ? `${API}/podcasts/byguid?guid=${encodeURIComponent(guidFromIri(iri))}`
     : `${API}/podcasts/byfeedurl?url=${encodeURIComponent(iri)}`;
-  // Two attempts: retry once on a network error or 5xx so a transient blip
-  // doesn't get a feed permanently marked as checked/empty.
-  for (let attempt = 0; attempt < 2; attempt++) {
+  let reason = '';
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    if (attempt > 0) await sleep(RETRY_DELAYS_MS[attempt - 1]);
     const headers = buildAuthHeaders(pi, Math.floor(Date.now() / 1000));
     let res: Response;
     try {
@@ -70,24 +113,27 @@ export async function lookupFeed(
       // deadlock the enricher's Promise.all and stop all enrichment.
       res = await fetchImpl(url, { headers, signal: AbortSignal.timeout(8000) });
     } catch {
-      if (attempt === 0) continue;
-      piSample('[pi] lookup failed: timeout/network');
-      return null;
+      reason = 'timeout/network';
+      continue;
     }
-    if (res.status >= 500) {
-      if (attempt === 0) continue;
-      piSample(`[pi] lookup failed: HTTP ${res.status}`);
-      return null;
+    if (res.status === 200) {
+      let body: unknown;
+      try {
+        body = await res.json();
+      } catch {
+        reason = 'bad JSON';
+        continue;
+      }
+      return hasFeed(body) ? { kind: 'found', meta: mapPiFeed(body) } : { kind: 'not_found' };
     }
-    if (res.status !== 200) {
-      piSample(`[pi] lookup failed: HTTP ${res.status}`);
-      return null;
-    }
-    try {
-      return mapPiFeed(await res.json());
-    } catch {
-      return null;
-    }
+    discard(res);
+    reason = `HTTP ${res.status}`;
+    const what = classifyStatus(res.status);
+    if (what === 'not_found') return { kind: 'not_found' };
+    if (what === 'retry') continue;
+    // 'auth' or an unexpected status: a retry in a few seconds does not help.
+    break;
   }
-  return null;
+  piSample(`[pi] lookup failed: ${reason}`);
+  return { kind: 'transient', reason };
 }

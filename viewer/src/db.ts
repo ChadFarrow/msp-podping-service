@@ -162,17 +162,22 @@ export class Db {
     }));
   }
 
-  async irisNeedingEnrichment(limit: number): Promise<string[]> {
+  async irisNeedingEnrichment(limit: number, notFoundRecheckDays = 7): Promise<string[]> {
     // NOT EXISTS + no DISTINCT lets Postgres short-circuit at LIMIT (~50ms vs ~6s
     // for a DISTINCT anti-join over the whole podping_iris table). Overfetch and
     // dedupe in app, since the same iri can appear on multiple podpings.
-    // A feed is "pending" if it has no successfully-checked row. Treating
-    // not_found rows as pending means any feed wrongly cached as not-found
-    // (e.g. from a rate-limit blip) gets retried until it's properly resolved.
+    // A feed is "pending" if it has no row, or a not_found row older than the
+    // recheck window (Podcast Index may index it later). A not_found row inside
+    // the window is NOT pending: the query has no ORDER BY, so a feed that stayed
+    // pending came back on every tick, and from 2026-09-30 to 2026-11-28 four such
+    // feeds (HTTP 400 from Podcast Index) held the whole queue. Only a real
+    // not-found answer writes not_found = true; a 429/5xx/network failure writes nothing.
     const res = await this.pool.query(
       `SELECT pi.iri FROM podping_iris pi
-       WHERE NOT EXISTS (SELECT 1 FROM feeds f WHERE f.iri = pi.iri AND f.not_found = false)
-       LIMIT $1`, [limit * 5]);
+       WHERE NOT EXISTS (
+         SELECT 1 FROM feeds f WHERE f.iri = pi.iri
+           AND (f.not_found = false OR f.last_checked > now() - $2::float8 * interval '1 day'))
+       LIMIT $1`, [limit * 5, notFoundRecheckDays]);
     const seen = new Set<string>();
     for (const r of res.rows) {
       seen.add(r.iri as string);

@@ -72,14 +72,32 @@ d('Db', () => {
     expect(stillPending).not.toContain('https://enrich/me.xml');
   });
 
-  it('re-queues feeds marked not_found until they are properly resolved', async () => {
-    await db.insertPodping(rec({ iris: ['https://requeue/x.xml'] }));
-    await db.upsertFeed('https://requeue/x.xml', null); // e.g. a rate-limit blip cached as not_found
-    // Still pending — a not_found row must be retried, not treated as done.
-    expect(await db.irisNeedingEnrichment(50)).toContain('https://requeue/x.xml');
-    // A successful re-check resolves it and removes it from the queue.
-    await db.upsertFeed('https://requeue/x.xml', { piFeedId: 1, title: 'T', author: null, image: null, medium: 'music' });
-    expect(await db.irisNeedingEnrichment(50)).not.toContain('https://requeue/x.xml');
+  it('a feed marked not_found leaves the queue, so the feeds behind it come up', async () => {
+    // Production, 2026-09-30 to 2026-11-28: the queue head was feeds that Podcast
+    // Index does not know (HTTP 400). They stayed pending, so the same ones came
+    // back on every tick and no feed behind them was ever looked up.
+    const bad = ['https://nf/a.xml', 'https://nf/b.xml', 'https://nf/c.xml'];
+    await db.insertPodping(rec({ iris: bad }));
+    await db.insertPodping(rec({ iris: ['https://nf/next.xml'] }));
+    for (const iri of bad) await db.upsertFeed(iri, null);
+    const pending = await db.irisNeedingEnrichment(50);
+    for (const iri of bad) expect(pending).not.toContain(iri);
+    expect(pending).toContain('https://nf/next.xml');
+  });
+
+  it('re-checks a not_found feed once the recheck window has passed', async () => {
+    const iri = 'https://nf/later.xml';
+    await db.insertPodping(rec({ iris: [iri] }));
+    await db.upsertFeed(iri, null);
+    expect(await db.irisNeedingEnrichment(50, 7)).not.toContain(iri);
+    // Podcast Index may index the feed later: after the window it is pending again.
+    const pool = new Pool({ connectionString: url });
+    await pool.query(`UPDATE feeds SET last_checked = now() - interval '8 days' WHERE iri = $1`, [iri]);
+    await pool.end();
+    expect(await db.irisNeedingEnrichment(50, 7)).toContain(iri);
+    // A successful re-check resolves it and removes it from the queue for good.
+    await db.upsertFeed(iri, { piFeedId: 1, title: 'T', author: null, image: null, medium: 'music' });
+    expect(await db.irisNeedingEnrichment(50, 0)).not.toContain(iri);
   });
 
   it('liveFeeds: newest live/liveEnd podping per feed decides, inside the window', async () => {
