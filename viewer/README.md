@@ -45,9 +45,9 @@ When every lookup of a batch fails without an answer, the enricher backs off exp
 full speed.
 
 The queue query has no `ORDER BY`, so the same feeds come first on each tick until each one has
-a row. Before 2026-11-28 a not-found answer was retried on every tick: from 2026-09-30 four
-feeds that Podcast Index answers with 400 held the head of the queue, and the enricher stored
-no feed for two months.
+a row. Before 2026-11-28 a not-found answer was retried on every tick: the enricher stored no
+feed after 2026-09-30, and on 2026-11-28 the head of the queue was four feeds that Podcast Index
+answers with 400.
 
 ## Staying up
 

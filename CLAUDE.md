@@ -85,8 +85,8 @@ in `viewer/README.md`; the load-bearing gotchas:
 - **Enrichment queue:** a Podcast Index "no such feed" answer (400 for a feed URL, 200 with
   `feed: []` for a guid) must store a `not_found` row, and the queue query must skip a
   `not_found` row inside `ENRICH_NOT_FOUND_RECHECK_DAYS`. The query has no `ORDER BY`, so a feed
-  that stays pending comes first on every tick: from 2026-09-30 to 2026-11-28 four such feeds
-  stopped all enrichment. A 429, 5xx, network error or 401/403 stores nothing. Table:
+  that stays pending comes first on every tick: no feed was stored after 2026-09-30, and on
+  2026-11-28 four such feeds held the head of the queue. A 429, 5xx, network error or 401/403 stores nothing. Table:
   `viewer/README.md`, *Feed enrichment*.
 - **Connection budget:** the running server's pool is capped by `PG_POOL_MAX` (default 10).
   The one-shot `viewer/src/backfill.ts` opens its **own** pool of up to 10, so backfilling

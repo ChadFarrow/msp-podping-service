@@ -169,9 +169,10 @@ export class Db {
     // A feed is "pending" if it has no row, or a not_found row older than the
     // recheck window (Podcast Index may index it later). A not_found row inside
     // the window is NOT pending: the query has no ORDER BY, so a feed that stayed
-    // pending came back on every tick, and from 2026-09-30 to 2026-11-28 four such
-    // feeds (HTTP 400 from Podcast Index) held the whole queue. Only a real
-    // not-found answer writes not_found = true; a 429/5xx/network failure writes nothing.
+    // pending came back on every tick: no feed was stored after 2026-09-30, and on
+    // 2026-11-28 the queue head was four feeds that Podcast Index answers with HTTP 400.
+    // Only a real not-found answer writes not_found = true; a 429/5xx/network failure
+    // writes nothing.
     const res = await this.pool.query(
       `SELECT pi.iri FROM podping_iris pi
        WHERE NOT EXISTS (
