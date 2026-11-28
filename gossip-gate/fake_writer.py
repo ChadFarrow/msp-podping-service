@@ -28,6 +28,8 @@ def note(event):
 
 
 note("start")
+if signal.getsignal(signal.SIGINT) == signal.SIG_IGN:
+    note("sigint-ignored-at-start")
 if os.environ.get("FAKE_FAIL_START"):
     note("fail")
     sys.exit(3)

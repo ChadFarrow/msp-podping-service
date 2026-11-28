@@ -71,17 +71,19 @@ class Config:
         self.stop_grace = env_float("GOSSIP_STOP_GRACE_SECONDS", 10.0)
 
 
+# Linux: the writer gets SIGKILL when the gate dies, so no orphan writer keeps
+# 9997 (every later writer would then fail to bind, and the orphan would keep
+# the egress bill running). Bound here, before any fork: the child must not
+# load a library between fork and exec while libzmq threads run in the gate.
+PR_SET_PDEATHSIG = 1
+try:
+    _prctl = ctypes.CDLL("libc.so.6", use_errno=True).prctl
+except OSError:
+    _prctl = None  # not Linux (local tests on macOS)
+
+
 def _child_setup():
-    # bash starts background jobs with SIGINT ignored, and the writer would
-    # inherit that. It shuts down cleanly (flushing its batch) only on SIGINT.
-    signal.signal(signal.SIGINT, signal.SIG_DFL)
-    signal.signal(signal.SIGTERM, signal.SIG_DFL)
-    # Linux: if the gate dies, the writer dies too, so no orphan keeps 9997.
-    try:
-        PR_SET_PDEATHSIG = 1
-        ctypes.CDLL("libc.so.6", use_errno=True).prctl(PR_SET_PDEATHSIG, signal.SIGKILL)
-    except OSError:
-        pass  # not Linux (local tests on macOS)
+    _prctl(PR_SET_PDEATHSIG, int(signal.SIGKILL))
 
 
 class Writer:
@@ -99,7 +101,7 @@ class Writer:
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            preexec_fn=_child_setup,
+            preexec_fn=_child_setup if _prctl is not None else None,
         )
         # The writer prints a line for every podping it sees on gossip, so its
         # pipe must be drained all the time or it blocks.
@@ -320,6 +322,10 @@ def main():
     def on_signal(signum, _frame):
         gate.running = False
 
+    # bash starts background jobs with SIGINT ignored, and an ignored signal
+    # stays ignored across exec. The writer shuts down cleanly (flushing its
+    # batch) only on SIGINT. A caught signal is reset to the default on exec,
+    # so these handlers also give the writer a working SIGINT.
     signal.signal(signal.SIGTERM, on_signal)
     signal.signal(signal.SIGINT, on_signal)
     gate.run()

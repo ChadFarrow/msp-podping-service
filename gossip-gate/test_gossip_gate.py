@@ -33,7 +33,7 @@ def wait_for(pred, timeout=10.0, what="condition"):
 
 
 class GateTest(unittest.TestCase):
-    def start(self, **env):
+    def start(self, under_bash=False, **env):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.fake_log = os.path.join(self.tmp.name, "fake.log")
@@ -56,10 +56,12 @@ class GateTest(unittest.TestCase):
         e.update({k: str(v) for k, v in env.items()})
         self.gate_out = open(self.gate_log, "w")
         self.addCleanup(self.gate_out.close)
-        self.gate = subprocess.Popen(
-            [sys.executable, "-u", os.path.join(HERE, "gossip_gate.py")],
-            env=e, stdout=self.gate_out, stderr=subprocess.STDOUT,
-        )
+        cmd = [sys.executable, "-u", os.path.join(HERE, "gossip_gate.py")]
+        if under_bash:
+            # As entrypoint.sh starts it: a background job of a bash script,
+            # which bash starts with SIGINT ignored.
+            cmd = ["bash", "-c", '( "$@" ) & wait', "bash", *cmd]
+        self.gate = subprocess.Popen(cmd, env=e, stdout=self.gate_out, stderr=subprocess.STDOUT)
         self.addCleanup(self.kill_all)
         wait_for(lambda: "listening on" in self.gate_text(), what="gate start")
         # The same socket set-up as hivepinger's GossipClient.
@@ -202,6 +204,35 @@ class TestGossipGate(GateTest):
         pid = self.writer_pids()[0]
         with self.assertRaises(ProcessLookupError):
             os.kill(pid, 0)
+
+    def test_under_bash_the_writer_still_gets_a_working_sigint(self):
+        self.start(under_bash=True, GOSSIP_IDLE_SECONDS=0.5)
+        self.send("p1")
+        self.wait_received("p1")
+        wait_for(lambda: "writer stopped (idle 0.5s)" in self.gate_text(), 5, "idle stop")
+        self.assertNotIn("sigint-ignored-at-start", self.event_names())
+        self.assertIn("sigint", self.event_names())
+        self.assertNotIn("killing it", self.gate_text())
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "PR_SET_PDEATHSIG is Linux only")
+    def test_the_writer_dies_with_the_gate(self):
+        self.start()
+        self.send("p1")
+        self.wait_received("p1")
+        pid = self.writer_pids()[0]
+        self.gate.kill()  # SIGKILL: the gate cannot stop the writer itself
+        self.gate.wait()
+
+        def gone():
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return True
+            # A zombie (dead, not yet reaped) counts as gone.
+            with open(f"/proc/{pid}/stat") as f:
+                return f.read().split(") ", 1)[1].startswith("Z")
+
+        wait_for(gone, 5, "the writer to die with the gate")
 
 
 if __name__ == "__main__":
