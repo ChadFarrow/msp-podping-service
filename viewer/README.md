@@ -19,10 +19,35 @@ The UI (separate plan) will live at **pp.musicsideproject.com**.
      so a replayed podping keeps its real age.
    - `HEALTH_MAX_LAG_SECONDS` (optional, default 600) — `/health` answers 503 when the last
      stored block is older than this.
+   - `ENRICH_NOT_FOUND_RECHECK_DAYS` (optional, default 7) — a feed that Podcast Index does not
+     know is stored as `not_found` and is looked up again only after this many days. See
+     *Feed enrichment* below.
 4. In the service's Settings → Deploy, set **Restart Policy** to **Always**. Under On Failure
    with 10 retries, this service stayed down after 10 restarts spread over 3 days in
    October 2026.
 5. Deploy. Check logs for `[collector] streaming from block N` and `[viewer] API listening`.
+
+## Feed enrichment
+
+The enricher takes the feeds with no `feeds` row (or a `not_found` row older than
+`ENRICH_NOT_FOUND_RECHECK_DAYS`) from `podping_iris`, 4 at a time (`ENRICH_BATCH`), every
+second (`ENRICH_INTERVAL_MS`), and asks Podcast Index for each one (`src/pi.ts`):
+
+| Podcast Index answer | Result |
+|---|---|
+| 200 with a feed | stored (title, author, image, medium) |
+| 200 with no feed (unknown guid), 400 (unknown feed URL: `{"description":"Feed url not found."}`), any other 4xx except 401/403/408/429 | stored as `not_found`; the queue goes on |
+| 429, 408, 5xx, timeout, network error | tried 3 times (waits 2 s, 8 s), then left queued; nothing stored |
+| 401, 403 (our key, secret or clock) | left queued at once; nothing stored |
+
+When every lookup of a batch fails without an answer, the enricher backs off exponentially, to
+`ENRICH_MAX_BACKOFF_MS` (default 5 min). One stored answer, found or not found, resets it to
+full speed.
+
+The queue query has no `ORDER BY`, so the same feeds come first on each tick until each one has
+a row. Before 2026-11-28 a not-found answer was retried on every tick: the enricher stored no
+feed after 2026-09-30, and on 2026-11-28 the head of the queue was four feeds that Podcast Index
+answers with 400.
 
 ## Staying up
 
