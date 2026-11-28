@@ -37,6 +37,9 @@ RUN npm ci --no-audit --no-fund \
 WORKDIR /
 
 COPY --from=gossip-writer /opt/gossip-writer/gossip-writer /usr/local/bin/gossip-writer
+# Starts gossip-writer only while a podping is in flight (GOSSIP_MODE=on-demand).
+# It uses the pyzmq that hivepinger already ships.
+COPY gossip-gate/gossip_gate.py /gossip-gate/gossip_gate.py
 
 COPY Caddyfile.template /etc/caddy/Caddyfile.template
 COPY entrypoint.sh /entrypoint.sh

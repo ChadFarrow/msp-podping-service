@@ -20,7 +20,9 @@ MSP (Vercel) ──Bearer──► Caddy :$PORT ──► hivepinger─┤
                                            127.0.0.1:8000
                                                     └─ZMQ 127.0.0.1:9998─► gossip-writer ─► iroh gossip
                                                        (only after a successful Hive write;
-                                                        only when GOSSIP_SIGNING_KEY is set)
+                                                        only when GOSSIP_SIGNING_KEY is set;
+                                                        GOSSIP_MODE=on-demand: gossip-gate holds
+                                                        9998 and runs the writer on 9997 per podping)
 
 consumer (Node) ──reads──► Hive block stream
      │
@@ -34,9 +36,9 @@ Single container, **three processes** supervised by `entrypoint.sh`, plus an opt
 - **hivepinger** (Python, upstream image `brianoflondon/podping-hivepinger:1.4.1`) — binds to `127.0.0.1:8000`, never public
 - **consumer** (Node 24, built from `consumer/` in this repo) — outbound only, no bindings
 - **Caddy v2** — binds to Railway's `$PORT`, reverse-proxies `/health` and bearer-auth-gated traffic to hivepinger
-- **gossip-writer** (Rust binary from `podcastindexorg/podping-gossipwriter`, optional) — binds ZMQ to `127.0.0.1:9998`, talks outbound to the gossip swarm. Runs in its own restart loop, so its exit never stops the container.
+- **gossip-writer** (Rust binary from `podcastindexorg/podping-gossipwriter`, optional) — binds ZMQ to `127.0.0.1:9998`, talks outbound to the gossip swarm. Runs in its own restart loop, so its exit never stops the container. With `GOSSIP_MODE=on-demand`, **gossip-gate** (`gossip-gate/gossip_gate.py`, Python) takes 9998 instead and runs the writer on `127.0.0.1:9997` only while a podping is in flight (see *Gossip Writer*).
 
-The first three run in the background under a single bash entrypoint; `wait -n` returns as soon as any one exits so Railway's container supervisor restarts the whole container. There's no silent-hivepinger-death failure mode. The gossip-writer loop never exits, so it never triggers `wait -n`.
+The first three run in the background under a single bash entrypoint; `wait -n` returns as soon as any one exits so Railway's container supervisor restarts the whole container. There's no silent-hivepinger-death failure mode. The gossip loop (writer or gate) never exits, so it never triggers `wait -n`.
 
 ## Repository Layout
 
@@ -44,6 +46,9 @@ The first three run in the background under a single bash entrypoint; `wait -n` 
 .
 ├── Dockerfile              # Layers Caddy + Node + consumer + gossip-writer onto the hivepinger base image
 ├── entrypoint.sh           # Renders Caddyfile from template, supervises the processes
+├── gossip-gate/            # GOSSIP_MODE=on-demand: starts gossip-writer per podping, stops it when idle
+│   ├── gossip_gate.py      # copied into the image as /gossip-gate/gossip_gate.py
+│   └── test_gossip_gate.py # + fake_writer.py; run: python3 -m unittest discover -s gossip-gate
 ├── Caddyfile.template      # Caddy config with __PORT__ and __PODPING_SHARED_SECRET__ placeholders
 ├── compose.yml             # Local-dev wrapper around the Dockerfile
 ├── consumer/               # Node/TypeScript consumer (built into the Docker image)
@@ -108,7 +113,7 @@ The `sed` delimiter is `|`. Safe because `PODPING_SHARED_SECRET` is generated vi
 2. Fails fast with `set -e` and `: "${PODPING_SHARED_SECRET:?...}"` if the secret is unset. Prevents a silent public deploy.
 3. Renders `Caddyfile.template` → `/etc/caddy/Caddyfile`.
 4. Installs `trap 'kill 0' EXIT INT TERM` so a dying child reaps its siblings when the trap fires on exit.
-4a. Gossip: if `GOSSIP_SIGNING_KEY` is 64 hex chars and `GOSSIP_ENABLED` is not `false`, writes the key as 32 raw bytes to `/data/gossip/iroh.key` (mode 600, via stdin so it never shows in `ps`), exports `GOSSIP_WRITER_ENABLED=true` + `GOSSIP_WRITER_ZMQ` for hivepinger, and starts `gossip-writer` in a `set +e` restart loop. Otherwise it logs `[gossip] disabled: <reason>` and exports `GOSSIP_WRITER_ENABLED=false`. No gossip failure may exit the entrypoint.
+4a. Gossip: if `GOSSIP_SIGNING_KEY` is 64 hex chars and `GOSSIP_ENABLED` is not `false`, writes the key as 32 raw bytes to `/data/gossip/iroh.key` (mode 600, via stdin so it never shows in `ps`), exports `GOSSIP_WRITER_ENABLED=true` + `GOSSIP_WRITER_ZMQ` for hivepinger, and starts a `set +e` restart loop: `gossip-writer` on 9998 (`GOSSIP_MODE=always`, the default), or `gossip-gate` on 9998 with the writer on 9997 (`GOSSIP_MODE=on-demand`). An unknown mode logs a line and uses `always`. Otherwise it logs `[gossip] disabled: <reason>` and exports `GOSSIP_WRITER_ENABLED=false`. No gossip failure may exit the entrypoint.
 5. Starts hivepinger in the background: `(cd /hivepinger && python -m hivepinger.api --host 127.0.0.1 --port 8000) &`. The 1.4.x CLI is flat — no `serve` subcommand; module entry is `hivepinger.api`, not `hivepinger`.
 6. Starts the consumer: `node /consumer/dist/index.js &`.
 7. Starts Caddy: `caddy run --config /etc/caddy/Caddyfile --adapter caddyfile &`.
@@ -130,6 +135,8 @@ None of the processes is PID 1 anymore — bash is. Don't add `exec` to any of t
 | `PORT` | No | Railway auto-injects; Caddy defaults to `:8080` if unset |
 | `GOSSIP_SIGNING_KEY` | No | 64 hex chars (`openssl rand -hex 32`). The gossip publisher's ed25519 secret key. Unset → gossip off. **Never change it once its pubkey is trusted.** |
 | `GOSSIP_ENABLED` | No | Set to `false` to turn gossip off without removing the key. Default `true`. |
+| `GOSSIP_MODE` | No | `always` (default): the writer runs all the time. `on-demand`: gossip-gate starts the writer for each podping and stops it when idle (saves about $7.50 a month of egress and memory; adds a few seconds to the gossip copy). |
+| `GOSSIP_IDLE_SECONDS` | No | On demand only: stop the writer this long after the last podping, its last reply or its first neighbor. Default `120`. The gate's other timers (`GOSSIP_PEER_WAIT_SECONDS` 60, `GOSSIP_BIND_WAIT_SECONDS` 60, `GOSSIP_NO_PEER_MAX_SECONDS` 600, `GOSSIP_RESTART_BACKOFF_SECONDS` 10, `GOSSIP_STOP_GRACE_SECONDS` 10) are for tests. |
 | `GOSSIP_FRIENDLY_NAME` | No | Peer name shown to the swarm. Default `MSP2.0-podping`. |
 | `GOSSIP_KEY_SEED` + `GOSSIP_KEY_DISCRIMINATOR` | No | Passed straight to gossip-writer: derive a stable iroh *node* key. Without them the node key is new each boot, which is fine — trust uses only the signing key. |
 
@@ -165,11 +172,35 @@ were on Hive and missing from gossip).
   the writer batches them about every 3 s. hivepinger 1.4.1 already ships `pycapnp` and
   `pyzmq`. The Rust binary has ZMQ built in; beyond libc it links only `libstdc++6` and
   `libgcc_s` (checked with `ldd`), which the Dockerfile installs explicitly.
+- **On demand (`GOSSIP_MODE=on-demand`):** an always-on writer is a full gossip node: about
+  3.8 GB a day of egress and 200 MB of memory on Railway, about $7.50 a month, for a couple
+  dozen podpings a month. gossip-gate binds 9998 (hivepinger does not change), and:
+  - holds each podping until the writer it started has printed `ZMQ PAIR socket bound on`
+    and its first `[EVENT] NeighborUp:` (or `GOSSIP_PEER_WAIT_SECONDS` passed; iroh-gossip
+    then queues the broadcast until a first connection), then hands them over; podpings that
+    come during the start go in the same hand-over, so in one batch;
+  - forwards later podpings at once, and reads and drops the writer's replies (one per IRI,
+    sent after the batch is signed and queued for broadcast);
+  - stops the writer with **SIGINT** (its only clean shutdown, `signal::ctrl_c()`; SIGTERM
+    skips the final flush) after `GOSSIP_IDLE_SECONDS`, SIGKILL after 10 s. It resets SIGINT
+    to default for the writer (bash starts background jobs with SIGINT ignored) and sets
+    `PR_SET_PDEATHSIG`, so a dead gate leaves no writer holding 9997.
+  - The signing key, so the sender pubkey, is the same on each start; the iroh node id and
+    `seq` (from 1) are new, as after any restart. Watchers accept that (seen 27-28 Nov).
+  - Tested 2026-11-28 in the sandbox with a private two-node swarm (writer behind the gate,
+    a watcher with `BOOTSTRAP_PEER_IDS=` empty, a throwaway key): first neighbor 0.6 s after
+    the start, the podping in the watcher `sig_status: VALID` about 4 s after the send, a clean
+    `ZMQ thread: shutdown signal received.` exit 0 on idle, and after a restart a burst of 3
+    IRIs in one batch with `seq` 1, VALID. The container with the gate alone used 12.6 MiB.
 - **Memory:** about 70–130 MB (the podping.cloud writers' figure). The writer's own memwatch
   re-execs it in place if iroh leaks; that is not a container exit.
 - **Logs:** `[gossip] enabled|disabled: …`, then the writer's own startup block (`Sender pubkey`,
   `Iroh Node ID`, `Subscribed to gossip topic.`). hivepinger logs
-  `Gossip writer enabled, connected to tcp://127.0.0.1:9998`.
+  `Gossip writer enabled, connected to tcp://127.0.0.1:9998`. On demand, the gate logs
+  `[gossip-gate] listening on …`, then per run `writer started (pid N) for N podping(s)`,
+  `handing N podping(s) to the writer after X.Xs (first neighbor)` and
+  `writer stopped (idle 120s) after Ns, N podping(s), N confirmed, exit code 0`; the
+  writer's startup block appears at each start.
 - **Expected boot warning:** hivepinger also logs `Gossip client could not verify TCP
   connection … will retry on send`. Ignore it. In local tests it appeared even when the writer
   was already listening, and the link still came up (an ESTABLISHED `127.0.0.1:9998` pair in
@@ -266,6 +297,8 @@ If MSP still has the old token during the redeploy window, its podping calls wil
 
 **Consumer only** (stop reacting to Hive): set `CONSUMER_ENABLED=false` on Railway. The consumer boots idle. Pusher and Caddy keep working.
 
+**On-demand gossip only** (back to an always-on writer): set `GOSSIP_MODE=always`, or delete `GOSSIP_MODE`, on Railway.
+
 **Gossip only** (stop broadcasting on gossip): set `GOSSIP_ENABLED=false` on Railway. Hive writes continue. Keep `GOSSIP_SIGNING_KEY` so the trusted identity survives.
 
 **Full**: pause or delete the Railway service. MSP's podping calls error out but its primary flow continues (podping is best-effort).
@@ -305,4 +338,4 @@ node dist/index.js
 # and "[txid] pp_* signer=... iris=..." lines as podpings appear.
 ```
 
-Use `no_broadcast=true` on pusher requests to exercise the auth + queue path without actually posting to Hive.
+Use `no_broadcast=true` on pusher requests to exercise the auth + queue path without actually posting to Hive. **With gossip on, it is not private:** hivepinger 1.4.1 sends the gossip copy after any successful write, and a no-broadcast write counts (`api.py` 463-472, read, not tested). Turn gossip off (`GOSSIP_ENABLED=false`) for such a test, or point `BOOTSTRAP_PEER_IDS` at a private watcher.
